@@ -171,8 +171,7 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
         </div>
 
         {/* 開始・終了時刻セレクター（時・分の組み合わせ） */}
-        {/* スマホでは縦2行、PC では横1行（time-grid / time-arrow クラスで制御） */}
-        <div className="time-grid">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 20px 1fr",gap:6,alignItems:"flex-end"}}>
             <div>
             <label className="lbl">開始</label>
             <div style={{display:"flex",gap:4}}>
@@ -185,7 +184,7 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
                 </select>
             </div>
             </div>
-            <div className="time-arrow">→</div>
+            <div style={{textAlign:"center",paddingBottom:8,color:"#c4c4d4",fontWeight:700,fontSize:14}}>→</div>
             <div>
             <label className="lbl">終了</label>
             <div style={{display:"flex",gap:4}}>
