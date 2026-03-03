@@ -101,7 +101,7 @@ select.inp option, select.inp-a option { background: white; color: #2d2d3a; }
 @media (min-width: 600px) { .cal-body { height: 600px; overflow-y: hidden; } }
 
 /* ── モーダル・オーバーレイ ── */
-/* スマホ: 画面上部〜中央あたり（15vh）に表示。PC: 画面中央に表示 */
+/* スマホ: 画面上から約25vh（下から3/4の位置）に表示。PC: 画面中央に表示 */
 .overlay {
     position: fixed; inset: 0;
     background: rgba(45, 45, 58, 0.28);
@@ -110,7 +110,7 @@ select.inp option, select.inp-a option { background: white; color: #2d2d3a; }
     flex-direction: column;
     z-index: 1000;
     padding: 12px;
-    padding-top: 15vh;
+    padding-top: 25vh;
     animation: fi 0.15s ease;
 }
 @media (min-width: 600px) {
@@ -193,6 +193,24 @@ select.inp option, select.inp-a option { background: white; color: #2d2d3a; }
 .row-card-a      { background: rgba(245, 158, 11, 0.03); border: 1.5px solid rgba(245, 158, 11, 0.15); border-radius: 14px; padding: 14px; position: relative; }
 .row-card.warn-row   { border-color: #fca5a5; background: rgba(255, 101, 132, 0.04); }
 .row-card-a.warn-row { border-color: #fbbf24; background: rgba(245, 158, 11, 0.06); }
+
+/* ── 時刻入力グリッド：スマホは縦2段、PC は横1段（開始 → 終了） ── */
+/* スマホ: 開始・終了を縦に並べる */
+.time-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+.time-arrow { display: none; } /* スマホでは矢印を非表示 */
+/* PC: 開始 → 矢印 → 終了 を横1行に並べる */
+@media (min-width: 600px) {
+    .time-grid {
+        grid-template-columns: 1fr 20px 1fr;
+        gap: 6px;
+        align-items: flex-end;
+    }
+    .time-arrow { display: block; text-align: center; padding-bottom: 8px; color: #c4c4d4; font-weight: 700; }
+}
 
 /* ── アニメーション ── */
 @keyframes fi    { from { opacity: 0; }                                          to { opacity: 1; }                                       }
