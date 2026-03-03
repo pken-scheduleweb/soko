@@ -2,7 +2,7 @@
 
 ## このサイトについて
 
-- **URL**: https://pken-scheduleweb.github.io/soko/
+**URL**: https://pken-scheduleweb.github.io/soko/
 
 P研の倉庫利用スケジュールを管理するための Web アプリです。
 URL を開くだけで使えるシンプルな設計になっており、インストールや会員登録は不要です。
