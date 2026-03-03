@@ -103,19 +103,17 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
         )}
         <div style={{fontWeight:800,fontSize:12,color:isAdmin?"#b45309":"#7c73ff",marginBottom:10}}>予定 {idx+1}</div>
 
-        <div style={{display:"grid",gridTemplateColumns:isAdmin?"1fr":"1fr 120px",gap:10,marginBottom:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:10,marginBottom:10}}>
             <div>
             <label className="lbl">名前</label>
             <input className={cls} placeholder="名前" value={row.name} onChange={e=>updateRow(row._id,"name",e.target.value)}/>
             </div>
-            {!isAdmin && (
             <div>
                 <label className="lbl">PIN（4桁）</label>
                 <input className={cls} type="password" inputMode="numeric" maxLength={4}
-                defaultValue={row.pin||""}
+                value={row.pin||""}
                 onChange={e=>updateRow(row._id,"pin",e.target.value.replace(/[^0-9]/g,"").slice(0,4))}/>
             </div>
-            )}
         </div>
 
         <div style={{marginBottom:10}}>
@@ -308,7 +306,7 @@ function App() {
         if(!row.name.trim()) return{...row,warn:"名前を入力してください"};
         const s=row.startH*60+row.startM, e=row.endH*60+row.endM;
         if(e<=s) return{...row,warn:"終了時間は開始時間より後にしてください"};
-        if(!isAdmin&&!/^\d{4}$/.test(row.pin||"")) return{...row,warn:"4桁のPINを入力してください"};
+        if(!/^\d{4}$/.test(row.pin||"")) return{...row,warn:"4桁のPINを入力してください"};
         return row;
         });
         const hasFieldErr = validated.some(r=>r.warn&&r.warn!=="");
@@ -317,7 +315,7 @@ function App() {
         // Build candidate items
         const candidates = rows.map(row=>{
         const s=row.startH*60+row.startM, e=row.endH*60+row.endM;
-        return{_id:row._id,name:row.name.trim(),dateKey:dateKey(weekDates[row.dayIndex]),dayIndex:row.dayIndex,startMin:s,endMin:e,pin:isAdmin?null:row.pin};
+        return{_id:row._id,name:row.name.trim(),dateKey:dateKey(weekDates[row.dayIndex]),dayIndex:row.dayIndex,startMin:s,endMin:e,pin:row.pin};
         });
 
         // Check overlaps for each
@@ -354,7 +352,7 @@ function App() {
         setSaving(true);
         const newItems=rows.map((row,i)=>{
         const s=row.startH*60+row.startM, e=row.endH*60+row.endM;
-        return{id:Date.now()+i,name:row.name.trim(),dateKey:dateKey(weekDates[row.dayIndex]),dayIndex:row.dayIndex,startMin:s,endMin:e,pin:null};
+        return{id:Date.now()+i,name:row.name.trim(),dateKey:dateKey(weekDates[row.dayIndex]),dayIndex:row.dayIndex,startMin:s,endMin:e,pin:row.pin};
         });
         const upd=[...schedules,...newItems];setSchedules(upd);await saveSch(upd);
         setSaving(false);setShowForm(false);setRows([]);
@@ -378,7 +376,7 @@ function App() {
         setCtxMenu(null);
         setEditTarget(s);setEditWarn("");setForceEdit(false);
         setEditPinInput("");setEditPinErr("");
-        setEditForm({dayIndex:s.dayIndex,startH:Math.floor(s.startMin/60),startM:s.startMin%60,endH:Math.floor(s.endMin/60),endM:s.endMin%60});
+        setEditForm({dayIndex:s.dayIndex,startH:Math.floor(s.startMin/60),startM:s.startMin%60,endH:Math.floor(s.endMin/60),endM:s.endMin%60,pin:s.pin||""});
         setEditPinOk(isAdmin||s.pin===null);
     }
     function handleEditPinSubmit(){
@@ -388,7 +386,9 @@ function App() {
     async function handleEditSave(){
         const s=editForm.startH*60+editForm.startM, e=editForm.endH*60+editForm.endM;
         if(e<=s){setEditWarn("終了時間は開始時間より後にしてください");return;}
-        const upd={...editTarget,dayIndex:editForm.dayIndex,dateKey:dateKey(weekDates[editForm.dayIndex]),startMin:s,endMin:e};
+        if(isAdmin&&!/^\d{4}$/.test(editForm.pin||"")){setEditWarn("PINは4桁の数字で入力してください");return;}
+        const newPin=isAdmin?editForm.pin:(editForm.pin&&/^\d{4}$/.test(editForm.pin)?editForm.pin:editTarget.pin);
+        const upd={...editTarget,dayIndex:editForm.dayIndex,dateKey:dateKey(weekDates[editForm.dayIndex]),startMin:s,endMin:e,pin:newPin};
         const ov=schedules.filter(x=>x.id!==editTarget.id&&x.dateKey===upd.dateKey&&x.startMin<upd.endMin&&x.endMin>upd.startMin);
         if(ov.length&&!forceEdit){
         setEditWarn("重複あり："+ov.map(x=>"「"+x.name+"」("+fmtTime(x.startMin)+"〜"+fmtTime(x.endMin)+")").join("、"));
@@ -503,7 +503,11 @@ function App() {
                 </div>
             </div>
             </div>
-            <p style={{textAlign:"center",fontSize:11,color:"#c4c4d4",marginTop:10,fontWeight:500}}>左クリックで詳細 / 右クリックで編集・削除</p>
+            <p style={{textAlign:"center",fontSize:11,color:"#c4c4d4",marginTop:10,fontWeight:500}}>
+                {'ontouchstart' in window
+                    ? "タッチで詳細・編集・削除"
+                    : "左クリックで詳細 / 右クリックで編集・削除"}
+            </p>
         </div>
 
         {/* Admin Login */}
@@ -642,6 +646,14 @@ function App() {
                 <div style={{marginTop:10,padding:"8px 11px",borderRadius:9,background:"linear-gradient(135deg,rgba(16,185,129,0.06),rgba(5,150,105,0.03))",border:"1px dashed rgba(16,185,129,0.26)",fontSize:12,color:"#065f46",fontWeight:600}}>
                 変更後：{DAYS_JA[editForm.dayIndex]}曜　{editForm.startH}:{String(editForm.startM).padStart(2,"0")}〜{editForm.endH}:{String(editForm.endM).padStart(2,"0")}
                 </div>
+                {isAdmin&&(
+                <div style={{marginTop:10}}>
+                    <label className="lbl">PIN（4桁・変更する場合）</label>
+                    <input className="inp-a" type="password" inputMode="numeric" maxLength={4}
+                    placeholder="4桁のPIN" value={editForm.pin||""}
+                    onChange={e=>setEditForm(f=>({...f,pin:e.target.value.replace(/[^0-9]/g,"").slice(0,4)}))}/>
+                </div>
+                )}
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
                 <button className="btn btn-ghost" onClick={()=>{setEditTarget(null);setEditForm(null);}}>キャンセル</button>
                 <button className="btn btn-green" onClick={handleEditSave} disabled={saving}>{saving?"保存中…":forceEdit?"重複を無視して保存":"変更を保存"}</button>
@@ -690,7 +702,7 @@ function App() {
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
                 <div>
                 <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a"}}>予定を追加</h2>
-                <p style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{isAdmin?"管理者：5分単位・全時間帯":"名前・日時・削除用PINを入力"}</p>
+                <p style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{isAdmin?"管理者：名前・日時・PINを設定":"名前・日時・削除用PINを入力"}</p>
                 </div>
                 <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={addRow}>+ 行を追加</button>
             </div>
