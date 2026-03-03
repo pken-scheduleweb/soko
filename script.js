@@ -559,7 +559,7 @@ function App() {
                 <div style={{width:42,height:42,borderRadius:12,flexShrink:0,background:isAdmin?"linear-gradient(135deg,#f59e0b,#d97706)":"linear-gradient(135deg,#6c63ff,#a855f7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:isAdmin?"0 3px 14px rgba(245,158,11,0.30)":"0 3px 14px rgba(108,99,255,0.30)"}}>{isAdmin?"⚙":"▦"}</div>
                 <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-                    <h1 style={{fontSize:20,fontWeight:800,color:"#2d2d3a",letterSpacing:"-0.4px"}}>倉庫スケジュール</h1>
+                    <h1 style={{fontSize:20,fontWeight:800,color:"#2d2d3a",letterSpacing:"-0.4px"}}>[P研] 倉庫スケジュール</h1>
                     {isAdmin&&<span className="adm-b">管理者モード</span>}
                 </div>
                 {/* 表示中の週範囲を表示 */}
