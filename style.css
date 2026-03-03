@@ -133,7 +133,7 @@ select.inp option, select.inp-a option { background: white; color: #2d2d3a; }
     box-shadow: 0 24px 64px rgba(45, 45, 58, 0.15), 0 0 0 1px rgba(108, 99, 255, 0.06);
     }
 }
-/* ドラッグバーは廃止（モーダルが中央になったので不要） */
+/* ドラッグバーは廃止（不要） */
 .drag-bar { display: none; }
 
 /* ── 右クリック コンテキストメニュー ── */
