@@ -6,9 +6,19 @@
     <title>[P研] 倉庫スケジュール</title>
 
     <!-- ファビコン（タブに表示されるアイコン） -->
+    <!-- rel="icon" の PNG: Chrome / Firefox / Edge などモダンブラウザ向け -->
     <link rel="icon" type="image/png" href="icon.png">
-    <!-- Apple Touch Icon（iOS でホーム画面に追加したときに使われるアイコン） -->
-    <link rel="apple-touch-icon" href="icon.png">
+    <!-- rel="shortcut icon": Safari を含む旧来ブラウザが最優先で参照する形式 -->
+    <link rel="shortcut icon" href="icon.png">
+    <!-- Apple Touch Icon: iOS Safari でホーム画面に追加したときのアイコン（タブアイコンとは別） -->
+    <link rel="apple-touch-icon" sizes="180x180" href="icon.png">
+    <!-- Android Chrome / PWA 向け: manifest.json でアイコンを指定 -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Windows タイル（Edge / IE）向けのアイコン色指定 -->
+    <meta name="msapplication-TileImage" content="icon.png">
+    <meta name="msapplication-TileColor" content="#6c63ff">
+    <!-- Android Chrome のアドレスバー・テーマカラー -->
+    <meta name="theme-color" content="#6c63ff">
 
     <!-- React + ReactDOM (UMD) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
