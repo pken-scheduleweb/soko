@@ -92,8 +92,8 @@ select.inp option, select.inp-a option { background: white; color: #2d2d3a; }
 .gl-mn   { position: absolute; left: 0; right: 0; height: 1px;   pointer-events: none; } /* 奇数時間線（細） */
 
 /* ── カレンダー本体の高さ（スマホ: 画面幅に合わせる / PC: 固定） ── */
-.cal-body { height: clamp(400px, calc(100vw - 28px), 700px); }
-@media (min-width: 600px) { .cal-body { height: 600px; } }
+.cal-body { height: clamp(400px, calc(100vw - 28px), 700px); overflow-y: hidden; }
+@media (min-width: 600px) { .cal-body { height: 600px; overflow-y: hidden; } }
 
 /* ── モーダル・オーバーレイ ── */
 .overlay {

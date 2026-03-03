@@ -28,12 +28,29 @@ const PALETTE = [
     {bg:"#66BB6A",text:"#fff"},{bg:"#FFA726",text:"#fff"},{bg:"#AB47BC",text:"#fff"},
     {bg:"#5C6BC0",text:"#fff"},{bg:"#E67E22",text:"#fff"},{bg:"#EC407A",text:"#fff"},
     {bg:"#26A69A",text:"#fff"},{bg:"#8D6E63",text:"#fff"},{bg:"#546E7A",text:"#fff"},
+    {bg:"#EF5350",text:"#fff"},{bg:"#7E57C2",text:"#fff"},{bg:"#29B6F6",text:"#fff"},
+    {bg:"#9CCC65",text:"#fff"},{bg:"#FF7043",text:"#fff"},{bg:"#00ACC1",text:"#fff"},
 ];
 
-function colorFor(name) {
+// グローバルな名前→色インデックスのマップ（衝突なしで割り当て）
+const nameColorMap = new Map();
+function colorFor(name, allSchedules) {
     const key = name.trim().toLowerCase();
+    if (!key) return PALETTE[0];
+    if (nameColorMap.has(key)) return PALETTE[nameColorMap.get(key)];
+    // 既に使われているインデックスを収集
+    const usedIndices = new Set([...nameColorMap.values()]);
+    // まずハッシュで候補を決める
     let h = 0;
-    for (let c of key) h = (h*31 + c.charCodeAt(0)) % PALETTE.length;
+    for (let c of key) h = (h * 31 + c.charCodeAt(0)) % PALETTE.length;
+    // 衝突していたら次の未使用インデックスを探す
+    if (usedIndices.has(h)) {
+        for (let i = 0; i < PALETTE.length; i++) {
+            const idx = (h + i + 1) % PALETTE.length;
+            if (!usedIndices.has(idx)) { h = idx; break; }
+        }
+    }
+    nameColorMap.set(key, h);
     return PALETTE[h];
 }
 function dateKey(dt) {
@@ -204,7 +221,15 @@ function App() {
         try {
         const schSnap  = await get(ref(db, DB_SCH_PATH));
         const passSnap = await get(ref(db, DB_PASS_PATH));
-        setSchedules(schSnap.exists()  ? schSnap.val()  : []);
+        const loadedSch = schSnap.exists() ? schSnap.val() : [];
+        // 既存スケジュールの名前を順番に色マップへ登録（衝突なし）
+        nameColorMap.clear();
+        const seen = [];
+        for (const s of loadedSch) {
+            const k = (s.name||"").trim().toLowerCase();
+            if (k && !nameColorMap.has(k)) { colorFor(k); seen.push(k); }
+        }
+        setSchedules(loadedSch);
         if (passSnap.exists() && passSnap.val()) setAdminPass(passSnap.val());
         } catch (e) {
         console.error("Firebase read error:", e);
@@ -241,7 +266,7 @@ function App() {
         setPassOk(true);setPassOld("");setPassNew("");setPassNew2("");
     }
 
-    const hourRange=isAdmin?Array.from({length:24},(_,i)=>i):Array.from({length:11},(_,i)=>i+10);
+    const hourRange=Array.from({length:11},(_,i)=>i+10);
     const minuteSteps=isAdmin?Array.from({length:12},(_,i)=>i*5):[0,15,30,45];
 
     // Check overlap against existing schedules + other rows being added
@@ -261,7 +286,18 @@ function App() {
     function addRow(){setRows(r=>[...r,newRow(weekDates,isAdmin)]);}
     function removeRow(id){setRows(r=>r.filter(x=>x._id!==id));}
     function updateRow(id,key,val){
-        setRows(r=>r.map(x=>x._id===id?{...x,[key]:val,warn:"",forceOk:false}:x));
+        setRows(r=>r.map(x=>{
+            if(x._id!==id) return x;
+            const updated={...x,[key]:val,warn:"",forceOk:false};
+            if(key==="startH"){
+                const newEnd=Math.min(+val+2,20);
+                updated.endH=newEnd;
+            } else if(key==="endH"){
+                const newStart=Math.max(+val-2,10);
+                updated.startH=newStart;
+            }
+            return updated;
+        }));
     }
 
     async function handleAdd(){
@@ -581,7 +617,7 @@ function App() {
                     <div>
                     <label className="lbl">開始</label>
                     <div style={{display:"flex",gap:4}}>
-                        <select className={isAdmin?"inp-a":"inp"} value={editForm.startH} onChange={e=>{setEditForm(f=>({...f,startH:+e.target.value}));setEditWarn("");setForceEdit(false);}}>
+                        <select className={isAdmin?"inp-a":"inp"} value={editForm.startH} onChange={e=>{const v=+e.target.value;setEditForm(f=>({...f,startH:v,endH:Math.min(v+2,20)}));setEditWarn("");setForceEdit(false);}}>
                         {hourRange.map(h=><option key={h} value={h}>{h}時</option>)}
                         </select>
                         <select className={isAdmin?"inp-a":"inp"} value={editForm.startM} onChange={e=>{setEditForm(f=>({...f,startM:+e.target.value}));setEditWarn("");setForceEdit(false);}}>
@@ -593,7 +629,7 @@ function App() {
                     <div>
                     <label className="lbl">終了</label>
                     <div style={{display:"flex",gap:4}}>
-                        <select className={isAdmin?"inp-a":"inp"} value={editForm.endH} onChange={e=>{setEditForm(f=>({...f,endH:+e.target.value}));setEditWarn("");setForceEdit(false);}}>
+                        <select className={isAdmin?"inp-a":"inp"} value={editForm.endH} onChange={e=>{const v=+e.target.value;setEditForm(f=>({...f,endH:v,startH:Math.max(v-2,10)}));setEditWarn("");setForceEdit(false);}}>
                         {hourRange.map(h=><option key={h} value={h}>{h}時</option>)}
                         </select>
                         <select className={isAdmin?"inp-a":"inp"} value={editForm.endM} onChange={e=>{setEditForm(f=>({...f,endM:+e.target.value}));setEditWarn("");setForceEdit(false);}}>
