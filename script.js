@@ -1,9 +1,12 @@
+// Firebase SDK から必要な関数をインポート
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// React のフックを UMD ビルドから取り出す
 const { useState, useEffect, useRef, useCallback } = React;
 
 
-// ── Firebase 設定 ──────────────────────────────────────────────
+// Firebase プロジェクトの接続設定
 const firebaseConfig = {
     apiKey:            "AIzaSyB-nACMRS4MaPbkeYuqqhrbsoIjBJSsM5g",
     authDomain:        "pken-schedule.firebaseapp.com",
@@ -13,16 +16,22 @@ const firebaseConfig = {
     messagingSenderId: "896999009755",
     appId:             "1:896999009755:web:ba18d17906013f2b0d8bfe"
 };
+
+// Firebase アプリを初期化し、Realtime Database への参照を取得
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
 
-// Firebase へのキーパス
-const DB_SCH_PATH  = "schedules";
-const DB_PASS_PATH = "adminPassword";
+// Realtime Database 内のデータパス定数
+const DB_SCH_PATH  = "schedules";      // スケジュール一覧を保存するパス
+const DB_PASS_PATH = "adminPassword";  // 管理者パスワードを保存するパス
 
+// カレンダー列ヘッダー用の曜日ラベル（火曜始まり）
 const DAYS_JA = ["火","水","木","金","土","日","月"];
+
+// Firebase にパスワードが未設定の場合に使うデフォルトの管理者パスワード
 const DEFAULT_PASS = "pken.admin.1234";
 
+// 予定ブロックの色パレット（18色）。各エントリは背景色と文字色のペア
 const PALETTE = [
     {bg:"#FF6B9D",text:"#fff"},{bg:"#26C6DA",text:"#fff"},{bg:"#42A5F5",text:"#fff"},
     {bg:"#66BB6A",text:"#fff"},{bg:"#FFA726",text:"#fff"},{bg:"#AB47BC",text:"#fff"},
@@ -32,77 +41,113 @@ const PALETTE = [
     {bg:"#9CCC65",text:"#fff"},{bg:"#FF7043",text:"#fff"},{bg:"#00ACC1",text:"#fff"},
 ];
 
-// グローバルな名前→色インデックスのマップ（衝突なしで割り当て）
+// 名前（小文字）→ パレットインデックス のグローバルマップ。
+// ページ内で同じ名前には常に同じ色を割り当てるために使う。
 const nameColorMap = new Map();
-function colorFor(name, allSchedules) {
+
+// 名前に対応するパレット色を返す。
+// 同一名前には一貫した色を、別名前には重複しない色を割り当てる。
+function colorFor(name) {
     const key = name.trim().toLowerCase();
-    if (!key) return PALETTE[0];
+    if (!key) return PALETTE[0]; // 空名前はデフォルト色
+
+    // 既にマップに登録済みならそのインデックスの色を返す
     if (nameColorMap.has(key)) return PALETTE[nameColorMap.get(key)];
-    // 既に使われているインデックスを収集
+
+    // 既に使用中のインデックスを収集して衝突を避ける
     const usedIndices = new Set([...nameColorMap.values()]);
-    // まずハッシュで候補を決める
+
+    // 名前文字列をハッシュ化して最初の候補インデックスを決める
     let h = 0;
     for (let c of key) h = (h * 31 + c.charCodeAt(0)) % PALETTE.length;
-    // 衝突していたら次の未使用インデックスを探す
+
+    // 候補が既に使用中なら次の未使用インデックスを線形探索する
     if (usedIndices.has(h)) {
         for (let i = 0; i < PALETTE.length; i++) {
             const idx = (h + i + 1) % PALETTE.length;
             if (!usedIndices.has(idx)) { h = idx; break; }
         }
     }
+
+    // 決定したインデックスをマップに登録して返す
     nameColorMap.set(key, h);
     return PALETTE[h];
 }
+
+// Date オブジェクトを "YYYY-MM-DD" 形式の文字列に変換する（Firebase のキーとして使用）
 function dateKey(dt) {
     return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
 }
+
+// 分数（例: 630）を "H:MM" 形式（例: "10:30"）に変換する
 function fmtTime(min) { return Math.floor(min/60)+":"+String(min%60).padStart(2,"0"); }
+
+// Date を "M/D" 形式（例: "3/15"）に変換する（カレンダーヘッダー表示用）
 function formatDate(dt) { return (dt.getMonth()+1)+"/"+dt.getDate(); }
 
+// 週のオフセット（weekOffset）を受け取り、火曜始まりで7日分の Date 配列を返す。
+// offsetWeeks=0 が今週、+1 が来週、-1 が先週に対応する。
 function buildWeekDates(offsetWeeks) {
     const base = new Date();
     base.setDate(base.getDate() + (offsetWeeks||0)*7);
-    const day = base.getDay();
+    const day = base.getDay(); // 0=日, 1=月, ..., 6=土
+    // 火曜（2）からの差分を求めて週の先頭（火）の日付を計算する
     const diff = day>=2 ? day-2 : day+5;
     const tue = new Date(base);
     tue.setDate(base.getDate()-diff);
+    // 火〜月の7日分を生成して返す
     return Array.from({length:7},(_,i)=>{ const dt=new Date(tue); dt.setDate(tue.getDate()+i); return dt; });
 }
 
+// 現在時刻から次の空き2時間スロットの開始時を返す（予定追加フォームの初期値用）。
+// スロット候補: 10, 12, 14, 16, 18 時。現在時刻が全スロット以降なら 10 を返す。
 function defaultStartHour() {
     const now = new Date();
     const h = now.getHours(), m = now.getMinutes();
     const slots = [10,12,14,16,18];
     for (const s of slots) {
-        if (h < s) return s;
-        if (h === s && m === 0) return s;
-        if (h >= s && h < s+2) return s+2 <= 20 ? s+2 : 10;
+        if (h < s) return s;              // 現時刻よりあとのスロット
+        if (h === s && m === 0) return s; // ちょうどスロット開始時刻
+        if (h >= s && h < s+2) return s+2 <= 20 ? s+2 : 10; // 現在スロット進行中は次へ
     }
     return 10;
 }
 
+// 今日の日付が週の何番目（0〜6）かを返す（予定追加フォームの曜日初期値用）。
+// 今日が表示週内にない場合は 0（火曜）を返す。
 function defaultDayIndex(weekDates) {
     const todayKey = dateKey(new Date());
     const idx = weekDates.findIndex(d => dateKey(d) === todayKey);
     return idx >= 0 ? idx : 0;
 }
 
+// 予定追加フォームの1行分の初期データを生成する。
+// _id はリスト操作用のローカル一意キー（Firebase には保存しない）。
 function newRow(weekDates, isAdmin) {
     const sh = defaultStartHour();
     const di = defaultDayIndex(weekDates);
     return { _id: Math.random(), name:"", dayIndex:di, startH:sh, startM:0, endH:Math.min(sh+2,20), endM:0, pin:"" };
 }
 
-// RowEditor must be defined at module level (not inside App) to avoid remount on every render
+// 予定1件の入力フォーム行コンポーネント。
+// App 内ではなくモジュールルートで定義することで、App 再レンダリング時に
+// コンポーネント関数が再生成されず、不要なアンマウント/マウントを防ぐ。
 function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minuteSteps, updateRow, removeRow}) {
+    // 名前が入力済みならプレビュー用の色を取得する
     const pal = row.name.trim() ? colorFor(row.name.trim()) : null;
     return (
+        // 重複警告がある行はカード背景を赤/黄に変える
         <div className={(isAdmin?"row-card-a":"row-card")+(row.warn?" warn-row":"")} style={{marginBottom:12}}>
+
+        {/* 2行以上ある場合のみ行削除ボタンを右上に表示 */}
         {rowCount>1 && (
             <button onClick={()=>removeRow(row._id)} style={{position:"absolute",top:10,right:10,background:"none",border:"none",cursor:"pointer",fontSize:17,color:"#9ca3af",fontWeight:800,lineHeight:1}}>×</button>
         )}
+
+        {/* 行番号ラベル（「予定 1」「予定 2」…） */}
         <div style={{fontWeight:800,fontSize:12,color:isAdmin?"#b45309":"#7c73ff",marginBottom:10}}>予定 {idx+1}</div>
 
+        {/* 名前 + PIN 入力欄（2カラムグリッド） */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:10,marginBottom:10}}>
             <div>
             <label className="lbl">名前</label>
@@ -110,12 +155,14 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
             </div>
             <div>
                 <label className="lbl">PIN（4桁）</label>
+                {/* inputMode="numeric" でスマホに数字キーパッドを表示。数字以外は除去 */}
                 <input className={cls} type="password" inputMode="numeric" maxLength={4}
                 value={row.pin||""}
                 onChange={e=>updateRow(row._id,"pin",e.target.value.replace(/[^0-9]/g,"").slice(0,4))}/>
             </div>
         </div>
 
+        {/* 曜日・日付セレクター */}
         <div style={{marginBottom:10}}>
             <label className="lbl">曜日・日付</label>
             <select className={cls} value={row.dayIndex} onChange={e=>updateRow(row._id,"dayIndex",+e.target.value)}>
@@ -123,10 +170,12 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
             </select>
         </div>
 
+        {/* 開始・終了時刻セレクター（時・分の組み合わせ） */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 20px 1fr",gap:6,alignItems:"flex-end"}}>
             <div>
             <label className="lbl">開始</label>
             <div style={{display:"flex",gap:4}}>
+                {/* 開始時を変更すると終了時が +2h に自動更新される（updateRow 内で処理） */}
                 <select className={cls} value={row.startH} onChange={e=>updateRow(row._id,"startH",+e.target.value)}>
                 {hourRange.map(h=><option key={h} value={h}>{h}時</option>)}
                 </select>
@@ -139,6 +188,7 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
             <div>
             <label className="lbl">終了</label>
             <div style={{display:"flex",gap:4}}>
+                {/* 終了時を変更すると開始時が -2h に自動更新される（updateRow 内で処理） */}
                 <select className={cls} value={row.endH} onChange={e=>updateRow(row._id,"endH",+e.target.value)}>
                 {hourRange.map(h=><option key={h} value={h}>{h}時</option>)}
                 </select>
@@ -149,13 +199,16 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
             </div>
         </div>
 
+        {/* バリデーション警告メッセージ（重複・入力不備など） */}
         {row.warn && (
             <div className={isAdmin?"wbox-a":"wbox"} style={{marginTop:10,fontSize:12}}>
             {row.warn}
+            {/* 管理者かつ強制追加可能な場合は追加の案内テキストを表示 */}
             {isAdmin&&row.forceOk&&<div style={{marginTop:3,fontSize:11,fontWeight:700}}>このまま「追加する」を押すと強制追加します。</div>}
             </div>
         )}
 
+        {/* 名前が入力されている場合に色付きプレビューバッジを表示 */}
         {pal && (
             <div style={{marginTop:10}}>
             <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:24,background:pal.bg,color:pal.text,fontSize:12,fontWeight:700,boxShadow:"0 2px 8px "+pal.bg+"40"}}>
@@ -167,60 +220,68 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
     );
 }
 
+// アプリ本体コンポーネント
 function App() {
-    const today = new Date();
+    const today = new Date(); // 今日の日付（TODAY ハイライト用）
+
+    // スケジュールデータと読み込み・保存状態
     const [schedules,setSchedules]=useState([]);
-    const [loading,setLoading]=useState(true);
-    const [saving,setSaving]=useState(false);
+    const [loading,setLoading]=useState(true);   // Firebase 読み込み中フラグ
+    const [saving,setSaving]=useState(false);     // Firebase 書き込み中フラグ
 
-    const [adminPass,setAdminPass]=useState(DEFAULT_PASS);
-    const [isAdmin,setIsAdmin]=useState(false);
-    const [showLogin,setShowLogin]=useState(false);
-    const [loginInput,setLoginInput]=useState("");
-    const [loginErr,setLoginErr]=useState("");
-    const [weekOffset,setWeekOffset]=useState(0);
+    // 管理者モード関連の状態
+    const [adminPass,setAdminPass]=useState(DEFAULT_PASS); // 現在有効な管理者パスワード
+    const [isAdmin,setIsAdmin]=useState(false);            // 管理者ログイン済みフラグ
+    const [showLogin,setShowLogin]=useState(false);        // ログインモーダル表示フラグ
+    const [loginInput,setLoginInput]=useState("");         // ログインフォームの入力値
+    const [loginErr,setLoginErr]=useState("");             // ログインエラーメッセージ
+    const [weekOffset,setWeekOffset]=useState(0);          // 週ナビのオフセット（0=今週）
 
+    // パスワード変更モーダル関連の状態
     const [showPassChange,setShowPassChange]=useState(false);
-    const [passOld,setPassOld]=useState("");
-    const [passNew,setPassNew]=useState("");
-    const [passNew2,setPassNew2]=useState("");
-    const [passErr,setPassErr]=useState("");
-    const [passOk,setPassOk]=useState(false);
+    const [passOld,setPassOld]=useState("");   // 現在のパスワード入力値
+    const [passNew,setPassNew]=useState("");   // 新しいパスワード入力値
+    const [passNew2,setPassNew2]=useState(""); // 新しいパスワード（確認用）
+    const [passErr,setPassErr]=useState("");   // エラーメッセージ
+    const [passOk,setPassOk]=useState(false);  // 変更成功フラグ
 
-    // Add modal — multiple rows
-    const [showForm,setShowForm]=useState(false);
-    const [rows,setRows]=useState([]); // each row: { _id, name, dayIndex, startH, startM, endH, endM, pin, warn, forceOk }
-    const [globalWarn,setGlobalWarn]=useState("");
+    // 予定追加モーダル関連の状態
+    const [showForm,setShowForm]=useState(false);  // 追加モーダル表示フラグ
+    const [rows,setRows]=useState([]);             // 追加フォームの行データ配列
+    const [globalWarn,setGlobalWarn]=useState(""); // 全体向けの警告メッセージ
 
-    // Detail modal
-    const [selected,setSelected]=useState(null);
+    // 詳細モーダル（左クリック・タップで開く）
+    const [selected,setSelected]=useState(null); // 表示中の予定オブジェクト（null で非表示）
 
-    // Context menu
-    const [ctxMenu,setCtxMenu]=useState(null);
-    const ctxRef=useRef(null);
+    // 右クリックコンテキストメニュー
+    const [ctxMenu,setCtxMenu]=useState(null); // { x, y, s } または null
+    const ctxRef=useRef(null);                 // メニュー DOM への参照（外側クリック検知用）
 
-    // Edit modal
-    const [editTarget,setEditTarget]=useState(null);
-    const [editForm,setEditForm]=useState(null);
-    const [editWarn,setEditWarn]=useState("");
-    const [forceEdit,setForceEdit]=useState(false);
-    const [editPinInput,setEditPinInput]=useState("");
-    const [editPinErr,setEditPinErr]=useState("");
-    const [editPinOk,setEditPinOk]=useState(false);
+    // 編集モーダル関連の状態
+    const [editTarget,setEditTarget]=useState(null);   // 編集対象の予定オブジェクト
+    const [editForm,setEditForm]=useState(null);       // 編集フォームの現在値
+    const [editWarn,setEditWarn]=useState("");          // バリデーション警告メッセージ
+    const [forceEdit,setForceEdit]=useState(false);    // 管理者の強制上書きフラグ
+    const [editPinInput,setEditPinInput]=useState(""); // PIN 確認フォームの入力値
+    const [editPinErr,setEditPinErr]=useState("");     // PIN 不一致エラーメッセージ
+    const [editPinOk,setEditPinOk]=useState(false);   // PIN 確認済みフラグ
 
-    // Delete PIN modal
-    const [deleteTarget,setDeleteTarget]=useState(null);
-    const [deletePinInput,setDeletePinInput]=useState("");
-    const [deletePinErr,setDeletePinErr]=useState("");
+    // 削除 PIN 確認モーダル関連の状態
+    const [deleteTarget,setDeleteTarget]=useState(null);   // 削除対象の予定オブジェクト
+    const [deletePinInput,setDeletePinInput]=useState(""); // 削除 PIN 入力値
+    const [deletePinErr,setDeletePinErr]=useState("");     // 削除 PIN エラーメッセージ
 
+    // 現在表示する週の日付配列（通常ユーザーは常に今週、管理者は weekOffset で変更可）
     const weekDates=buildWeekDates(isAdmin?weekOffset:0);
 
+    // Firebase からスケジュール一覧と管理者パスワードを読み込む
     async function load() {
         try {
         const schSnap  = await get(ref(db, DB_SCH_PATH));
         const passSnap = await get(ref(db, DB_PASS_PATH));
         const loadedSch = schSnap.exists() ? schSnap.val() : [];
-        // 既存スケジュールの名前を順番に色マップへ登録（衝突なし）
+
+        // 読み込んだ名前を順番に色マップへ登録（既存の色割り当てを復元）
         nameColorMap.clear();
         const seen = [];
         for (const s of loadedSch) {
@@ -228,6 +289,7 @@ function App() {
             if (k && !nameColorMap.has(k)) { colorFor(k); seen.push(k); }
         }
         setSchedules(loadedSch);
+        // Firebase にパスワードが保存されていればそちらを優先する
         if (passSnap.exists() && passSnap.val()) setAdminPass(passSnap.val());
         } catch (e) {
         console.error("Firebase read error:", e);
@@ -235,26 +297,39 @@ function App() {
         }
         setLoading(false);
     }
+
+    // スケジュール一覧を Firebase に保存する
     async function saveSch(list) {
         await set(ref(db, DB_SCH_PATH), list);
     }
+
+    // 管理者パスワードを Firebase に保存する
     async function saveAdminPass(p) {
         await set(ref(db, DB_PASS_PATH), p);
     }
+
+    // 初回マウント時にデータを読み込む
     useEffect(()=>{load();},[]);
 
+    // コンテキストメニューが表示されているとき、メニュー外をクリックしたら閉じる
     useEffect(()=>{
         function h(e){if(ctxRef.current&&!ctxRef.current.contains(e.target))setCtxMenu(null);}
+        // setTimeout(0) でイベント登録を次のマクロタスクに遅らせ、
+        // メニューを開いたクリック自体で即閉じるのを防ぐ
         if(ctxMenu)setTimeout(()=>document.addEventListener("mousedown",h),0);
         return()=>document.removeEventListener("mousedown",h);
     },[ctxMenu]);
 
+    // 管理者ログイン処理：パスワードが一致したら管理者モードを有効にする
     function handleLogin(){
         if(loginInput===adminPass){setIsAdmin(true);setShowLogin(false);setLoginInput("");setLoginErr("");}
         else setLoginErr("パスワードが違います");
     }
+
+    // 管理者ログアウト：管理者モードを解除し週オフセットをリセットする
     function handleLogout(){setIsAdmin(false);setWeekOffset(0);}
 
+    // パスワード変更処理：旧パスワード確認 → バリデーション → Firebase に保存
     async function handlePassChange(){
         setPassErr("");setPassOk(false);
         if(passOld!==adminPass){setPassErr("現在のパスワードが違います");return;}
@@ -264,43 +339,60 @@ function App() {
         setPassOk(true);setPassOld("");setPassNew("");setPassNew2("");
     }
 
+    // 時間のセレクター用配列（10〜20 時）
     const hourRange=Array.from({length:11},(_,i)=>i+10);
+    // 分のセレクター用配列：管理者は 5 分刻み、一般は 15 分刻み
     const minuteSteps=isAdmin?Array.from({length:12},(_,i)=>i*5):[0,15,30,45];
 
-    // Check overlap against existing schedules + other rows being added
+    // 既存スケジュールとの時間重複チェック。
+    // excludeId を指定するとその予定を除外して比較する（編集時に自分自身を除くため）。
     function checkOverlapExisting(item, excludeId=null){
         return schedules.filter(s=>s.id!==excludeId&&s.dateKey===item.dateKey&&s.startMin<item.endMin&&s.endMin>item.startMin);
     }
+
+    // 同一バッチ内（一括追加中の他行）との時間重複チェック
     function checkOverlapRows(item, rowId, pendingRows){
-        // check against other rows in the same batch
         return pendingRows.filter(r=>r._id!==rowId&&r.dateKey===item.dateKey&&r.startMin<item.endMin&&r.endMin>item.startMin&&r.startMin!==undefined);
     }
 
-    // Open add form
+    // 予定追加フォームを開く：フォーム表示状態をリセットして1行目を初期化
     function openAdd(){
         setShowForm(true);setGlobalWarn("");
         setRows([newRow(weekDates,isAdmin)]);
     }
+
+    // 追加フォームに新しい行を追加する
     function addRow(){setRows(r=>[...r,newRow(weekDates,isAdmin)]);}
+
+    // 指定 ID の行を追加フォームから削除する
     function removeRow(id){setRows(r=>r.filter(x=>x._id!==id));}
+
+    // 追加フォームの1行の特定フィールドを更新する。
+    // startH を変更すると endH を +2h に、endH を変更すると startH を -2h に自動調整する。
     function updateRow(id,key,val){
         setRows(r=>r.map(x=>{
             if(x._id!==id) return x;
             const updated={...x,[key]:val,warn:"",forceOk:false};
             if(key==="startH"){
-                const newEnd=Math.min(+val+2,20);
+                const newEnd=Math.min(+val+2,20); // 終了を 開始+2h（上限20時）に設定
                 updated.endH=newEnd;
             } else if(key==="endH"){
-                const newStart=Math.max(+val-2,10);
+                const newStart=Math.max(+val-2,10); // 開始を 終了-2h（下限10時）に設定
                 updated.startH=newStart;
             }
             return updated;
         }));
     }
 
+    // 予定追加の実行処理
+    // ① 入力バリデーション（名前・時刻範囲・PIN 形式）
+    // ② 候補データ生成（分単位の startMin / endMin を計算）
+    // ③ 重複チェック（既存スケジュールおよびバッチ内の他行と照合）
+    // ④ 問題なければ Firebase に保存
     async function handleAdd(){
         setGlobalWarn("");
-        // Validate each row
+
+        // ① バリデーション：各行の必須入力・時刻範囲・PIN 形式を確認
         let anyErr=false;
         const validated = rows.map(row=>{
         if(!row.name.trim()) return{...row,warn:"名前を入力してください"};
@@ -312,13 +404,13 @@ function App() {
         const hasFieldErr = validated.some(r=>r.warn&&r.warn!=="");
         if(hasFieldErr){setRows(validated);return;}
 
-        // Build candidate items
+        // ② 各行を Firebase 保存用オブジェクト（候補）に変換
         const candidates = rows.map(row=>{
         const s=row.startH*60+row.startM, e=row.endH*60+row.endM;
         return{_id:row._id,name:row.name.trim(),dateKey:dateKey(weekDates[row.dayIndex]),dayIndex:row.dayIndex,startMin:s,endMin:e,pin:row.pin};
         });
 
-        // Check overlaps for each
+        // ③ 重複チェック：既存スケジュールおよびバッチ内の他行と比較
         const withWarn = rows.map((row,i)=>{
         const c=candidates[i];
         const ovEx=checkOverlapExisting(c);
@@ -326,6 +418,7 @@ function App() {
         const allOv=[...ovEx,...ovRow];
         if(allOv.length>0&&!row.forceOk){
             const msg="重複あり："+allOv.map(x=>"「"+(x.name||"(他の行)")+"」("+fmtTime(x.startMin)+"〜"+fmtTime(x.endMin)+")").join("、");
+            // 管理者の場合は forceOk を true にして強制追加を許可する
             return{...row,warn:msg,forceOk:isAdmin};
         }
         return row;
@@ -334,20 +427,21 @@ function App() {
         const hasOverlapErr=withWarn.some(r=>r.warn&&!r.forceOk);
         if(hasOverlapErr){
         setRows(withWarn);
-        if(!isAdmin) return; // normal users: block
-        // admin: all forceOk already set, show warning but allow proceed on next click
+        if(!isAdmin) return; // 一般ユーザーは重複があれば保存不可
+        // 管理者：全行に forceOk が設定されていれば次のクリックで保存できる
         const allForce=withWarn.every(r=>!r.warn||(r.warn&&r.forceOk));
         if(!allForce) return;
         }
 
-        // All ok — save
+        // ④ 全チェック通過 → Firebase に保存
         setSaving(true);
+        // id は Date.now() + インデックスで一意にする
         const newItems=candidates.map((c,i)=>({id:Date.now()+i,name:c.name,dateKey:c.dateKey,dayIndex:c.dayIndex,startMin:c.startMin,endMin:c.endMin,pin:c.pin}));
         const upd=[...schedules,...newItems];setSchedules(upd);await saveSch(upd);
         setSaving(false);setShowForm(false);setRows([]);setGlobalWarn("");
     }
 
-    // Admin: second click force-adds everything
+    // 管理者専用の強制追加：バリデーション・重複チェックをスキップして即保存する
     async function handleForceAdd(){
         setSaving(true);
         const newItems=rows.map((row,i)=>{
@@ -358,20 +452,28 @@ function App() {
         setSaving(false);setShowForm(false);setRows([]);
     }
 
+    // 削除開始処理：
+    // 管理者または PIN 未設定なら即削除、それ以外は PIN 確認モーダルを開く
     function askDelete(s){
         setCtxMenu(null);setSelected(null);
         if(isAdmin||s.pin===null){doDelete(s.id);return;}
         setDeleteTarget(s);setDeletePinInput("");setDeletePinErr("");
     }
+
+    // 指定 ID の予定を Firebase から削除する
     async function doDelete(id){
         const upd=schedules.filter(s=>s.id!==id);setSchedules(upd);await saveSch(upd);
         setDeleteTarget(null);setSelected(null);setCtxMenu(null);
     }
+
+    // PIN 確認付き削除：入力 PIN と予定の PIN を照合してから削除する
     function handleDeleteWithPin(){
         if(deletePinInput!==deleteTarget.pin){setDeletePinErr("PINが違います");return;}
         doDelete(deleteTarget.id);
     }
 
+    // 編集モーダルを開く：対象予定の現在値をフォームに展開する。
+    // 管理者または PIN 未設定の場合は PIN 確認ステップをスキップする。
     function openEdit(s){
         setCtxMenu(null);
         setEditTarget(s);setEditWarn("");setForceEdit(false);
@@ -379,42 +481,65 @@ function App() {
         setEditForm({name:s.name,dayIndex:s.dayIndex,startH:Math.floor(s.startMin/60),startM:s.startMin%60,endH:Math.floor(s.endMin/60),endM:s.endMin%60,pin:s.pin||""});
         setEditPinOk(isAdmin||s.pin===null);
     }
+
+    // 編集用 PIN 確認処理：入力 PIN が正しければ編集フォームを表示する
     function handleEditPinSubmit(){
         if(editPinInput!==editTarget.pin){setEditPinErr("PINが違います");return;}
         setEditPinOk(true);setEditPinErr("");
     }
+
+    // 編集内容の保存処理：
+    // ① 名前・時刻バリデーション
+    // ② 重複チェック（管理者は forceEdit フラグで上書き可）
+    // ③ Firebase に保存
     async function handleEditSave(){
         const s=editForm.startH*60+editForm.startM, e=editForm.endH*60+editForm.endM;
         if(!editForm.name.trim()){setEditWarn("名前を入力してください");return;}
         if(e<=s){setEditWarn("終了時間は開始時間より後にしてください");return;}
         if(isAdmin&&!/^\d{4}$/.test(editForm.pin||"")){setEditWarn("PINは4桁の数字で入力してください");return;}
+        // PIN 更新：管理者はフォーム値、一般ユーザーは有効な入力値があれば更新、なければ既存を維持
         const newPin=isAdmin?editForm.pin:(editForm.pin&&/^\d{4}$/.test(editForm.pin)?editForm.pin:editTarget.pin);
         const upd={...editTarget,name:editForm.name.trim(),dayIndex:editForm.dayIndex,dateKey:dateKey(weekDates[editForm.dayIndex]),startMin:s,endMin:e,pin:newPin};
+        // 重複チェック（自分自身を除く）
         const ov=schedules.filter(x=>x.id!==editTarget.id&&x.dateKey===upd.dateKey&&x.startMin<upd.endMin&&x.endMin>upd.startMin);
         if(ov.length&&!forceEdit){
         setEditWarn("重複あり："+ov.map(x=>"「"+x.name+"」("+fmtTime(x.startMin)+"〜"+fmtTime(x.endMin)+")").join("、"));
-        if(isAdmin)setForceEdit(true); return;
+        if(isAdmin)setForceEdit(true); // 管理者は次回クリックで強制保存できるようにする
+        return;
         }
+        // Firebase に保存
         setSaving(true);
         const list=schedules.map(x=>x.id===editTarget.id?upd:x);setSchedules(list);await saveSch(list);
         setSaving(false);setEditTarget(null);setEditForm(null);setForceEdit(false);
     }
 
-    // Calendar
+    // カレンダー描画のための計算
+    // 管理者モード: 表示週のスケジュールに合わせて時間軸範囲を動的に絞る
     const viewSch=isAdmin?schedules.filter(s=>weekDates.some(d=>dateKey(d)===s.dateKey)):[];
+    // vsH: 表示開始時（最小で10時）、veH: 表示終了時（最大で20時）
     const vsH=isAdmin?Math.min(10,...(viewSch.length?viewSch.map(s=>Math.floor(s.startMin/60)):[10])):10;
     const veH=isAdmin?Math.max(20,...(viewSch.length?viewSch.map(s=>Math.ceil(s.endMin/60)):[20])):20;
-    const VS=vsH*60,VE=veH*60,VT=VE-VS;
+    const VS=vsH*60,VE=veH*60,VT=VE-VS; // 表示範囲の開始分・終了分・合計分
+
+    // 分を時間軸上の % 位置に変換する関数（予定ブロックの top/height 計算用）
     const pct=min=>((min-VS)/VT)*100;
-    const calH = "100%";  // height driven by .cal-body CSS container
+
+    // カレンダー本体の高さは CSS .cal-body クラスで制御する
+    const calH = "100%";
+
+    // 時間軸に描画するすべての時間ラベル配列（vsH〜veH）
     const allH=Array.from({length:veH-vsH+1},(_,i)=>i+vsH);
+    // 偶数時間のみ太いグリッド線（gl-mj）を引く
     const mjH=allH.filter(h=>h%2===0);
 
-
+    // 追加フォームに強制追加可能な行が1件以上あるか
     const hasForceRows = rows.some(r=>r.warn&&r.forceOk);
 
     return(
+        // 管理者モードに応じてページ背景グラデーションを切り替える
         <div style={{minHeight:"100vh",background:isAdmin?"linear-gradient(160deg,#fffbeb 0%,#fef3c7 40%,#fff7ed 100%)":"linear-gradient(160deg,#f8f9ff 0%,#eef2ff 50%,#fdf0ff 100%)",fontFamily:"'M PLUS Rounded 1c','Noto Sans JP',sans-serif",transition:"background 0.4s"}}>
+
+        {/* 背景の装飾用ぼかし円（pointer-events:none でクリックに干渉しない） */}
         <div style={{position:"fixed",inset:0,overflow:"hidden",zIndex:0,pointerEvents:"none"}}>
             {isAdmin?<>
             <div style={{position:"absolute",width:400,height:400,borderRadius:"50%",background:"rgba(245,158,11,0.07)",filter:"blur(50px)",top:-100,right:-80}}/>
@@ -427,77 +552,101 @@ function App() {
 
         <div style={{maxWidth:1160,margin:"0 auto",padding:"20px 14px",position:"relative",zIndex:1}}>
 
-            {/* Header */}
+            {/* ヘッダー：アイコン・タイトル・表示週範囲 */}
             <div style={{marginBottom:18}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+                {/* 管理者モードで色が変わるアイコンバッジ */}
                 <div style={{width:42,height:42,borderRadius:12,flexShrink:0,background:isAdmin?"linear-gradient(135deg,#f59e0b,#d97706)":"linear-gradient(135deg,#6c63ff,#a855f7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:isAdmin?"0 3px 14px rgba(245,158,11,0.30)":"0 3px 14px rgba(108,99,255,0.30)"}}>{isAdmin?"⚙":"▦"}</div>
                 <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
                     <h1 style={{fontSize:20,fontWeight:800,color:"#2d2d3a",letterSpacing:"-0.4px"}}>倉庫スケジュール</h1>
                     {isAdmin&&<span className="adm-b">管理者モード</span>}
                 </div>
+                {/* 表示中の週範囲を表示 */}
                 <p style={{fontSize:11,color:"#9ca3af",marginTop:1,fontWeight:500}}>
                     {isAdmin?weekDates[0].getFullYear()+"/"+formatDate(weekDates[0])+"（火）〜 "+weekDates[6].getFullYear()+"/"+formatDate(weekDates[6])+"（月）":formatDate(weekDates[0])+"（火）〜 "+formatDate(weekDates[6])+"（月）"}
                 </p>
                 </div>
             </div>
 
-            {/* Controls row */}
+            {/* 操作ボタン行：週ナビ（管理者のみ）・更新・追加・PW変更・ログアウト/管理 */}
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 {isAdmin&&<>
+                {/* 管理者専用：週ナビゲーションボタン */}
                 <button className="wkbtn" onClick={()=>setWeekOffset(w=>w-1)}>◀ 前週</button>
                 <button className="wkbtn" style={{background:weekOffset===0?"rgba(245,158,11,0.18)":"rgba(245,158,11,0.09)"}} onClick={()=>setWeekOffset(0)}>今週</button>
                 <button className="wkbtn" onClick={()=>setWeekOffset(w=>w+1)}>次週 ▶</button>
                 <div style={{width:1,height:24,background:"rgba(245,158,11,0.25)",margin:"0 2px"}}/>
                 </>}
+                {/* Firebase からデータを再取得する更新ボタン */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={load}>更新</button>
+                {/* 予定追加フォームを開くボタン */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-amber":"btn-purple")} onClick={openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
+                {/* 管理者専用：パスワード変更・ログアウトボタン */}
                 <button className="btn btn-sm btn-ghost-amber" onClick={()=>{setShowPassChange(true);setPassErr("");setPassOk(false);setPassOld("");setPassNew("");setPassNew2("");}}>PW変更</button>
                 <button className="btn btn-sm btn-ghost-amber" onClick={handleLogout}>ログアウト</button>
                 </>:<button className="btn btn-sm btn-ghost" onClick={()=>{setShowLogin(true);setLoginErr("");setLoginInput("");}}>管理</button>}
             </div>
             </div>
 
-            {/* Calendar */}
+            {/* カレンダー本体 */}
             <div className={isAdmin?"admin-glass":"glass"} style={{borderRadius:18}}>
+            {/* overflowX:auto でスマホの横スクロールを有効にする */}
             <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
-                <div style={{minWidth:520}}>  {/* スマホで横スクロール: 最低幅を確保 */}
-                {/* Day headers */}
+                {/* minWidth:520 でスマホでも7列のレイアウトを崩さない */}
+                <div style={{minWidth:520}}>
+
+                {/* 曜日ヘッダー行：火〜月の7列 */}
                 <div style={{display:"flex",background:isAdmin?"linear-gradient(135deg,rgba(245,158,11,0.07),rgba(217,119,6,0.03))":"linear-gradient(135deg,rgba(108,99,255,0.05),rgba(168,85,247,0.03))",borderBottom:isAdmin?"1px solid rgba(245,158,11,0.15)":"1px solid rgba(108,99,255,0.09)"}}>
+                    {/* 時刻ラベル列の幅確保用スペーサー */}
                     <div style={{width:48,flexShrink:0}}/>
                     {weekDates.map((dt,i)=>{
                     const isT=dateKey(dt)===dateKey(today),isSat=i===4,isSun=i===5;
                     return(<div key={i} style={{flex:1,textAlign:"center",padding:"11px 3px",borderLeft:isAdmin?"1px solid rgba(245,158,11,0.10)":"1px solid rgba(108,99,255,0.07)",background:isT?(isAdmin?"rgba(245,158,11,0.07)":"rgba(108,99,255,0.06)"):"transparent"}}>
+                        {/* 今日は強調色、土曜は青、日曜は赤で表示 */}
                         <div style={{fontSize:16,fontWeight:800,color:isT?(isAdmin?"#d97706":"#6c63ff"):isSat?"#3b82f6":isSun?"#ef4444":"#2d2d3a"}}>{DAYS_JA[i]}</div>
                         <div style={{fontSize:10,color:"#b0b0c4",fontWeight:600,marginTop:1}}>{formatDate(dt)}</div>
                         {isT&&<div style={{marginTop:3}}><span className="today-b">TODAY</span></div>}
                     </div>);
                     })}
                 </div>
-                {/* Timeline */}
+
+                {/* タイムライン本体：読み込み中はメッセージを表示 */}
                 {loading?<div style={{textAlign:"center",padding:"48px 0",color:"#b0b0c4",fontWeight:600}}>読み込み中...</div>:(
                     <div className="cal-body" style={{display:"flex"}}>
+
+                    {/* 時刻ラベル列（左端 48px）。overflow:visible で上下端ラベルが切れないようにする */}
                     <div style={{width:48,flexShrink:0,position:"relative",height:calH,overflow:"visible"}}>
                         {allH.map(h=>{
+                            // 最上端・最下端のラベルは transform を調整してはみ出しを防ぐ
                             const isFirst=h===vsH, isLast=h===veH;
                             const tf=isFirst?"translateY(0)":isLast?"translateY(-100%)":"translateY(-50%)";
                             return <div key={h} style={{position:"absolute",top:pct(h*60)+"%",right:7,transform:tf,fontSize:mjH.includes(h)?10:9,fontWeight:mjH.includes(h)?800:500,color:mjH.includes(h)?(isAdmin?"#d97706":"#7c73ff"):"#d1d5db"}}>{h}:00</div>;
                         })}
                     </div>
+
+                    {/* 7列の曜日カラム */}
                     {weekDates.map((dt,dayIdx)=>{
                         const dk=dateKey(dt);
-                        const daySch=schedules.filter(s=>s.dateKey===dk);
+                        const daySch=schedules.filter(s=>s.dateKey===dk); // その日の予定一覧
                         const isT=dk===dateKey(today);
                         return(<div key={dayIdx} className="day-col" style={{height:calH,background:isT?(isAdmin?"rgba(245,158,11,0.022)":"rgba(108,99,255,0.020)"):"transparent",borderLeft:isAdmin?"1px solid rgba(245,158,11,0.08)":"1px solid rgba(108,99,255,0.07)"}}>
+
+                        {/* 時間グリッド線：偶数時間は太線（gl-mj）、奇数時間は細線（gl-mn） */}
                         {allH.map(h=><div key={h} className={mjH.includes(h)?"gl-mj":"gl-mn"} style={{top:pct(h*60)+"%",background:mjH.includes(h)?(isAdmin?"rgba(245,158,11,0.13)":"rgba(108,99,255,0.10)"):(isAdmin?"rgba(245,158,11,0.06)":"rgba(108,99,255,0.05)")}}/>)}
+
+                        {/* 予定ブロック：上位置・高さを pct() でパーセント指定 */}
                         {daySch.map(s=>{
                             const pal=colorFor(s.name);
                             const top=pct(s.startMin),ht=pct(s.endMin)-top;
                             return(<div key={s.id} className="blk ba" style={{top:top+"%",height:Math.max(ht,3.5)+"%",background:"linear-gradient(160deg,"+pal.bg+"f0,"+pal.bg+"c8)",boxShadow:"0 2px 10px "+pal.bg+"45"}}
+                            // 左クリック / タップ：詳細モーダルを開く
                             onClick={()=>{setSelected(s);setCtxMenu(null);}}
+                            // 右クリック：コンテキストメニューを開く（主に PC 向け）
                             onContextMenu={e=>{e.preventDefault();e.stopPropagation();setSelected(null);setCtxMenu({x:e.clientX,y:e.clientY,s});}}>
                             <div style={{fontWeight:800,fontSize:14,color:pal.text,lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>
+                            {/* ブロックが十分な高さ（5%以上）のとき時刻を表示 */}
                             {ht>5&&<div style={{fontSize:11,color:pal.text,opacity:0.85,marginTop:2}}>{fmtTime(s.startMin)}〜{fmtTime(s.endMin)}</div>}
                             </div>);
                         })}
@@ -508,6 +657,8 @@ function App() {
                 </div>
             </div>
             </div>
+
+            {/* 操作ヒントテキスト：タッチデバイスと PC で文言を変える */}
             <p style={{textAlign:"center",fontSize:11,color:"#c4c4d4",marginTop:10,fontWeight:500}}>
                 {'ontouchstart' in window
                     ? "タッチで詳細・編集・削除"
@@ -515,7 +666,7 @@ function App() {
             </p>
         </div>
 
-        {/* Admin Login */}
+        {/* 管理者ログインモーダル */}
         {showLogin&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowLogin(false);}}>
             <div className="modal" style={{maxWidth:320}}>
             <div className="drag-bar"/>
@@ -523,6 +674,7 @@ function App() {
             {loginErr&&<div className="wbox" style={{marginBottom:10,fontSize:12}}>{loginErr}</div>}
             <div style={{marginBottom:14}}>
                 <label className="lbl">パスワード</label>
+                {/* onKeyDown で Enter キーによるログインも受け付ける */}
                 <input className="inp-a" type="password" value={loginInput} onChange={e=>{setLoginInput(e.target.value);setLoginErr("");}} onKeyDown={e=>e.key==="Enter"&&handleLogin()} autoFocus/>
             </div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
@@ -532,7 +684,7 @@ function App() {
             </div>
         </div>}
 
-        {/* Password Change */}
+        {/* パスワード変更モーダル（管理者専用） */}
         {showPassChange&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowPassChange(false);}}>
             <div className="modal" style={{maxWidth:360}}>
             <div className="drag-bar"/>
@@ -544,6 +696,7 @@ function App() {
                 <div><label className="lbl">現在のパスワード</label><input className="inp-a" type="password" value={passOld} onChange={e=>{setPassOld(e.target.value);setPassErr("");setPassOk(false);}} autoFocus/></div>
                 <div style={{borderTop:"1px solid rgba(245,158,11,0.15)",paddingTop:10}}>
                 <div style={{marginBottom:10}}><label className="lbl">新しいパスワード（6文字以上）</label><input className="inp-a" type="password" value={passNew} onChange={e=>{setPassNew(e.target.value);setPassErr("");setPassOk(false);}}/></div>
+                {/* Enter キーで変更を保存できる */}
                 <div><label className="lbl">確認</label><input className="inp-a" type="password" value={passNew2} onChange={e=>{setPassNew2(e.target.value);setPassErr("");setPassOk(false);}} onKeyDown={e=>e.key==="Enter"&&handlePassChange()}/></div>
                 </div>
             </div>
@@ -554,11 +707,13 @@ function App() {
             </div>
         </div>}
 
-        {/* Context Menu */}
+        {/* 右クリックコンテキストメニュー（主に PC 向け）。画面端に収まるよう座標を補正する */}
         {ctxMenu&&(()=>{
             const pal=colorFor(ctxMenu.s.name);
+            // ウィンドウ右端・下端にはみ出さないよう x/y を補正する
             const x=Math.min(ctxMenu.x,window.innerWidth-185),y=Math.min(ctxMenu.y,window.innerHeight-140);
             return(<div ref={ctxRef} className="ctx" style={{left:x,top:y}}>
+            {/* メニューヘッダー：予定名と色ドットを表示 */}
             <div style={{padding:"7px 12px 8px",display:"flex",alignItems:"center",gap:7}}>
                 <span style={{width:8,height:8,borderRadius:2,background:pal.bg,flexShrink:0,display:"inline-block"}}/>
                 <span style={{fontWeight:800,fontSize:12,color:"#2d2d3a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:125}}>{ctxMenu.s.name}</span>
@@ -571,7 +726,7 @@ function App() {
             </div>);
         })()}
 
-        {/* Delete PIN */}
+        {/* 削除 PIN 確認モーダル：予定名を表示して PIN の入力を求める */}
         {deleteTarget&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setDeleteTarget(null);}}>
             <div className="modal" style={{maxWidth:300}}>
             <div className="drag-bar"/>
@@ -581,6 +736,7 @@ function App() {
                 を削除するにはPINを入力してください。
             </p>
             {deletePinErr&&<p style={{color:"#dc2626",fontSize:13,fontWeight:600,marginBottom:8}}>{deletePinErr}</p>}
+            {/* inputMode="numeric" でスマホに数字キーパッドを表示 */}
             <input className="inp" type="password" inputMode="numeric" maxLength={4} placeholder="4桁のPIN" autoFocus value={deletePinInput} onChange={e=>{setDeletePinInput(e.target.value.replace(/[^0-9]/g,"").slice(0,4));setDeletePinErr("");}} onKeyDown={e=>e.key==="Enter"&&handleDeleteWithPin()}/>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
                 <button className="btn btn-ghost" onClick={()=>setDeleteTarget(null)}>キャンセル</button>
@@ -589,15 +745,19 @@ function App() {
             </div>
         </div>}
 
-        {/* Edit Modal */}
+        {/* 編集モーダル：PIN 未確認時は PIN 入力画面、確認済み後は編集フォームを表示 */}
         {editTarget&&editForm&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget){setEditTarget(null);setEditForm(null);}}}>
             <div className="modal">
             <div className="drag-bar"/>
             <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:4}}>予定を編集</h2>
+            {/* 編集対象の名前・元の日時をヘッダーに表示 */}
             <div style={{marginBottom:14,display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
                 <span style={{display:"inline-flex",padding:"3px 10px",borderRadius:18,fontSize:12,background:colorFor(editTarget.name).bg,color:colorFor(editTarget.name).text,fontWeight:700}}>{editTarget.name}</span>
                 <span style={{fontSize:11,color:"#9ca3af"}}>{DAYS_JA[editTarget.dayIndex]}曜　{fmtTime(editTarget.startMin)}〜{fmtTime(editTarget.endMin)}</span>
-            </div>            {!editPinOk?(<>
+            </div>
+            {/* PIN 確認前後でコンテンツを切り替える */}
+            {!editPinOk?(<>
+                {/* PIN 確認画面 */}
                 <p style={{fontSize:13,color:"#6b7280",marginBottom:4}}>編集するにはPINを入力してください。</p>
                 <input className="inp" type="password" inputMode="numeric" maxLength={4}
                 placeholder="4桁のPIN" autoFocus
@@ -610,21 +770,26 @@ function App() {
                 <button className="btn btn-purple" onClick={handleEditPinSubmit}>確認</button>
                 </div>
             </>):(<>
+                {/* 編集フォーム（PIN 確認済み） */}
                 {editWarn&&<div className={isAdmin?"wbox-a":"wbox"} style={{marginBottom:10,fontSize:12}}>
                 {editWarn}
+                {/* 管理者かつ強制保存モードの場合は追加の説明を表示 */}
                 {isAdmin&&forceEdit&&<div style={{marginTop:3,fontSize:11,fontWeight:700}}>もう一度押すと強制保存します。</div>}
                 </div>}
                 <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {/* 名前変更フィールド */}
                 <div>
                     <label className="lbl">名前</label>
                     <input className={isAdmin?"inp-a":"inp"} placeholder="名前" value={editForm.name} onChange={e=>{setEditForm(f=>({...f,name:e.target.value}));setEditWarn("");}}/>
                 </div>
+                {/* 曜日変更セレクター */}
                 <div>
                     <label className="lbl">曜日・日付</label>
                     <select className={isAdmin?"inp-a":"inp"} value={editForm.dayIndex} onChange={e=>setEditForm(f=>({...f,dayIndex:+e.target.value}))}>
                     {weekDates.map((dt,i)=><option key={i} value={i}>{DAYS_JA[i]}曜日（{dt.getMonth()+1}/{dt.getDate()}）</option>)}
                     </select>
                 </div>
+                {/* 開始・終了時刻変更（追加フォームと同様に +2h/-2h 自動調整あり） */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 20px 1fr",gap:6,alignItems:"flex-end"}}>
                     <div>
                     <label className="lbl">開始</label>
@@ -651,9 +816,11 @@ function App() {
                     </div>
                 </div>
                 </div>
+                {/* 変更後のプレビュー表示 */}
                 <div style={{marginTop:10,padding:"8px 11px",borderRadius:9,background:"linear-gradient(135deg,rgba(16,185,129,0.06),rgba(5,150,105,0.03))",border:"1px dashed rgba(16,185,129,0.26)",fontSize:12,color:"#065f46",fontWeight:600}}>
                 変更後：{editForm.name||"(名前未入力)"}　{DAYS_JA[editForm.dayIndex]}曜　{editForm.startH}:{String(editForm.startM).padStart(2,"0")}〜{editForm.endH}:{String(editForm.endM).padStart(2,"0")}
                 </div>
+                {/* 管理者のみ PIN 変更フィールドを表示 */}
                 {isAdmin&&(
                 <div style={{marginTop:10}}>
                     <label className="lbl">PIN（4桁・変更する場合）</label>
@@ -664,27 +831,32 @@ function App() {
                 )}
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
                 <button className="btn btn-ghost" onClick={()=>{setEditTarget(null);setEditForm(null);}}>キャンセル</button>
+                {/* 重複がある場合は「重複を無視して保存」、通常は「変更を保存」と表示 */}
                 <button className="btn btn-green" onClick={handleEditSave} disabled={saving}>{saving?"保存中…":forceEdit?"重複を無視して保存":"変更を保存"}</button>
                 </div>
             </>)}
             </div>
         </div>}
 
-        {/* Detail Modal — 編集・削除ボタンあり（スマホでの操作用） */}
+        {/* 詳細モーダル：タップ/左クリックで開く。編集・削除ボタン付き（スマホ操作用） */}
         {selected&&(()=>{
             const pal=colorFor(selected.name);
             const dur=selected.endMin-selected.startMin;
+            // 所要時間を "X時間Y分" 形式に変換する
             const durL=dur>=60?Math.floor(dur/60)+"時間"+(dur%60>0?dur%60+"分":""):dur+"分";
             return(<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setSelected(null);}}>
             <div className="modal" style={{maxWidth:340,padding:0,overflow:"hidden"}}>
+                {/* 予定色のグラデーションバー（モーダル上部） */}
                 <div style={{borderRadius:"20px 20px 0 0",overflow:"hidden"}}>
                 <div style={{height:6,background:"linear-gradient(90deg,"+pal.bg+","+pal.bg+"80)"}}/>
                 </div>
                 <div style={{padding:22}}>
                 <div className="drag-bar"/>
+                {/* 予定名を色付きバッジで表示 */}
                 <div style={{marginBottom:16}}>
                     <span style={{display:"inline-flex",alignItems:"center",padding:"7px 14px",borderRadius:24,background:pal.bg,color:pal.text,fontSize:14,boxShadow:"0 3px 12px "+pal.bg+"45",fontWeight:800}}>{selected.name}</span>
                 </div>
+                {/* 日付・時間帯・所要時間の情報行 */}
                 <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
                     {[{label:"日付",value:selected.dateKey.replace(/-/g,"/")+"（"+DAYS_JA[selected.dayIndex]+"曜日）"},{label:"時間帯",value:fmtTime(selected.startMin)+" 〜 "+fmtTime(selected.endMin)},{label:"所要時間",value:durL}].map(row=>(
                     <div key={row.label} className="irow">
@@ -693,6 +865,7 @@ function App() {
                     </div>
                     ))}
                 </div>
+                {/* 閉じる・編集・削除ボタン */}
                 <div style={{display:"flex",gap:8,marginTop:4}}>
                     <button className="btn btn-ghost" style={{flex:1}} onClick={()=>setSelected(null)}>閉じる</button>
                     <button className="btn btn-ghost" style={{flex:1,color:"#059669",borderColor:"rgba(16,185,129,0.3)"}} onClick={()=>{const s=selected;setSelected(null);openEdit(s);}}>編集</button>
@@ -703,7 +876,7 @@ function App() {
             </div>);
         })()}
 
-        {/* Add Modal — multiple rows */}
+        {/* 予定追加モーダル：複数行を一括で追加できる */}
         {showForm&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget){setShowForm(false);setRows([]);setGlobalWarn("");}}}>
             <div className="modal" style={{maxWidth:520}}>
             <div className="drag-bar"/>
@@ -712,10 +885,12 @@ function App() {
                 <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a"}}>予定を追加</h2>
                 <p style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{isAdmin?"管理者：名前・日時・PINを設定":"名前・日時・削除用PINを入力"}</p>
                 </div>
+                {/* 行追加ボタン：押すたびに RowEditor が1行増える */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={addRow}>+ 行を追加</button>
             </div>
             {globalWarn&&<div className="wbox" style={{marginBottom:10,fontSize:12}}>{globalWarn}</div>}
 
+            {/* 複数行の入力フォーム（maxHeight でスクロール可能に） */}
             <div style={{maxHeight:"52vh",overflowY:"auto",paddingRight:2}}>
                 {rows.map((row,idx)=>(
                 <RowEditor key={row._id} row={row} idx={idx} rowCount={rows.length} isAdmin={isAdmin} cls={isAdmin?"inp-a":"inp"} weekDates={weekDates} hourRange={hourRange} minuteSteps={minuteSteps} updateRow={updateRow} removeRow={removeRow}/>
@@ -724,6 +899,7 @@ function App() {
 
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,flexWrap:"wrap"}}>
                 <button className="btn btn-ghost" onClick={()=>{setShowForm(false);setRows([]);setGlobalWarn("");}}>キャンセル</button>
+                {/* 管理者かつ強制追加行がある場合は「重複を無視して追加」ボタンを表示 */}
                 {isAdmin&&hasForceRows?(
                 <button className="btn btn-amber" onClick={handleForceAdd} disabled={saving}>{saving?"保存中…":"重複を無視して追加"}</button>
                 ):(
@@ -737,5 +913,6 @@ function App() {
 }
 
 
+// React ルートを作成してアプリをレンダリングする
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
