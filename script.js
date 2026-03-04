@@ -261,6 +261,8 @@ function App() {
     // 右クリックコンテキストメニュー
     const [ctxMenu, setCtxMenu]=useState(null); // { x, y, s } または null
     const ctxRef=useRef(null);                 // メニュー DOM への参照（外側クリック検知用）
+    const captureRef=useRef(null);             // カレンダー部分への参照（画像保存用）
+    const [capturing, setCapturing]=useState(false); // 画像保存処理中フラグ
 
     // 編集モーダル関連の状態
     const [editTarget, setEditTarget]=useState(null);   // 編集対象の予定オブジェクト
@@ -376,6 +378,40 @@ function App() {
         setPassErr("");setPassOk(false);
         setAdminPass(DEFAULT_PASS);await saveAdminPass(DEFAULT_PASS);
         setPassOk(true);setPassOld("");setPassNew("");setPassNew2("");
+    }
+
+    // カレンダー部分を画像として保存する（html2canvas を使用）
+    async function handleCapture(){
+        if(!captureRef.current||capturing) return;
+        setCapturing(true);
+        try {
+            // html2canvas が未ロードなら動的に読み込む（初回のみ）
+            if(!window.html2canvas){
+                await new Promise((res, rej)=>{
+                    const s=document.createElement("script");
+                    s.src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                    s.onload=res; s.onerror=rej;
+                    document.head.appendChild(s);
+                });
+            }
+            const canvas=await window.html2canvas(captureRef.current,{
+                scale:2,          // 高解像度（2倍）で保存
+                useCORS:true,     // icon.png などの外部画像を含めるため CORS を許可
+                backgroundColor:isAdmin?"#fffbeb":"#f8f9ff", // ページ背景色に合わせる
+                logging:false,
+            });
+            // 表示中の週をファイル名に含める
+            const wd=weekDates;
+            const fn="schedule_"+wd[0].getFullYear()+"-"+(wd[0].getMonth()+1)+"-"+wd[0].getDate()+"_"+wd[6].getFullYear()+"-"+(wd[6].getMonth()+1)+"-"+wd[6].getDate()+".png";
+            const a=document.createElement("a");
+            a.href=canvas.toDataURL("image/png");
+            a.download=fn;
+            a.click();
+        } catch(e){
+            console.error("capture error:", e);
+            alert("画像の保存に失敗しました。");
+        }
+        setCapturing(false);
     }
 
     // 時間のセレクター用配列（10〜20 時）
@@ -630,6 +666,8 @@ function App() {
                 </>}
                 {/* Firebase からデータを再取得する更新ボタン */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={load}>更新</button>
+                {/* カレンダーを画像として保存するボタン */}
+                <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={handleCapture} disabled={capturing}>{capturing?"保存中...":"📷 画像保存"}</button>
                 {/* 予定追加フォームを開くボタン */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-amber":"btn-purple")} onClick={openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
@@ -641,7 +679,7 @@ function App() {
             </div>
 
             {/* カレンダー本体 */}
-            <div className={isAdmin?"admin-glass":"glass"} style={{borderRadius:18}}>
+            <div ref={captureRef} className={isAdmin?"admin-glass":"glass"} style={{borderRadius:18}}>
             {/* overflowX:auto でスマホの横スクロールを有効にする */}
             <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
                 {/* minWidth:520 でスマホでも7列のレイアウトを崩さない */}
