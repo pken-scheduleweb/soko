@@ -380,79 +380,173 @@ function App() {
         setPassOk(true);setPassOld("");setPassNew("");setPassNew2("");
     }
 
-    // カレンダー部分を画像として保存する（html2canvas を使用）
+    // カレンダーを Canvas に直接描画して画像として保存する
+    // html2canvas + DOM クローンではスマホのメディアクエリ・フォントサイズが
+    // ブラウザ依存になるため、Canvas API で PC 固定レイアウトを自力描画する
     async function handleCapture(){
-        if(!captureRef.current||capturing) return;
+        if(capturing) return;
         setCapturing(true);
         try {
-            // html2canvas が未ロードなら動的に読み込む（初回のみ）
-            if(!window.html2canvas){
-                await new Promise((res, rej)=>{
-                    const s=document.createElement("script");
-                    s.src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                    s.onload=res; s.onerror=rej;
-                    document.head.appendChild(s);
-                });
-            }
+            // ── レイアウト定数（PC 表示に合わせた固定値） ──
+            const FONT   = "'M PLUS Rounded 1c', 'Noto Sans JP', sans-serif";
+            const W      = 800;   // 画像の論理幅（px）
+            const SCALE  = 2;     // Retina 対応倍率
+            const TLEFT  = 48;    // 時刻ラベル列幅
+            const HEAD_H = 58;    // 曜日ヘッダー行高さ
+            const CAL_H  = 600;   // カレンダー本体高さ
+            const H      = HEAD_H + CAL_H;
+            const COL_W  = (W - TLEFT) / 7; // 1列幅
 
-            // スマホでは overflow:hidden/auto によりスクロール外が描画されない問題を回避するため
-            // キャプチャ対象を画面外に複製してから描画する
-            const src=captureRef.current;
-            const clone=src.cloneNode(true);
-            // 複製をオフスクリーン（画面外左）に配置し、幅・折り返しを PC 相当に固定する
-            Object.assign(clone.style,{
-                position:"fixed", left:"-9999px", top:"0",
-                width:"800px",        // PC 幅に固定してカレンダーを全列表示
-                overflow:"visible",   // スクロールを解除して全体を描画
-                zIndex:"-1",
-            });
-            // 内部の overflow:auto / hidden 要素もすべて解除する
-            clone.querySelectorAll("*").forEach(el=>{
-                const cs=window.getComputedStyle(el);
-                if(cs.overflow==="auto"||cs.overflow==="hidden"||
-                   cs.overflowX==="auto"||cs.overflowX==="hidden"){
-                    el.style.overflow="visible";
-                    el.style.overflowX="visible";
+            const canvas = document.createElement("canvas");
+            canvas.width  = W * SCALE;
+            canvas.height = H * SCALE;
+            const ctx = canvas.getContext("2d");
+            ctx.scale(SCALE, SCALE);
+
+            // 背景
+            ctx.fillStyle = isAdmin ? "#fffbeb" : "#f8f9ff";
+            ctx.fillRect(0, 0, W, H);
+
+            // カレンダーカード背景
+            ctx.fillStyle = isAdmin ? "rgba(255,249,237,0.97)" : "rgba(255,255,255,0.97)";
+            roundRect(ctx, 0, 0, W, H, 18);
+            ctx.fill();
+
+            // 時間軸の範囲（表示中の週のスケジュールに合わせる）
+            const weekSch = schedules.filter(s => weekDates.some(d => dateKey(d) === s.dateKey));
+            const vsH2 = Math.min(10, ...(weekSch.length ? weekSch.map(s => Math.floor(s.startMin/60)) : [10]));
+            const veH2 = Math.max(20, ...(weekSch.length ? weekSch.map(s => Math.ceil(s.endMin/60))   : [20]));
+            const VS2 = vsH2 * 60, VE2 = veH2 * 60, VT2 = VE2 - VS2;
+            const pct2 = min => ((min - VS2) / VT2) * CAL_H; // 分 → px（CAL_H基準）
+            const allH2 = Array.from({length: veH2 - vsH2 + 1}, (_, i) => i + vsH2);
+            const mjH2  = allH2.filter(h => h % 2 === 0);
+
+            const today2 = new Date();
+            const DAYS = ["火","水","木","金","土","日","月"];
+            const colBorder = isAdmin ? "rgba(245,158,11,0.18)" : "rgba(108,99,255,0.12)";
+            const headBg    = isAdmin ? "rgba(245,158,11,0.07)" : "rgba(108,99,255,0.05)";
+            const todayBg   = isAdmin ? "rgba(245,158,11,0.08)" : "rgba(108,99,255,0.07)";
+            const accentCol = isAdmin ? "#d97706" : "#6c63ff";
+
+            // ── 曜日ヘッダー ──
+            ctx.fillStyle = headBg;
+            ctx.fillRect(0, 0, W, HEAD_H);
+            ctx.strokeStyle = isAdmin ? "rgba(245,158,11,0.15)" : "rgba(108,99,255,0.09)";
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(0, HEAD_H); ctx.lineTo(W, HEAD_H); ctx.stroke();
+
+            weekDates.forEach((dt, i) => {
+                const x    = TLEFT + i * COL_W;
+                const isT  = dateKey(dt) === dateKey(today2);
+                const isSat = i === 4, isSun = i === 5;
+                // 今日の列の背景
+                if (isT) { ctx.fillStyle = todayBg; ctx.fillRect(x, 0, COL_W, HEAD_H); }
+                // 縦区切り線
+                ctx.strokeStyle = colBorder; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, HEAD_H); ctx.stroke();
+                // 曜日
+                ctx.font = "800 16px " + FONT;
+                ctx.textAlign = "center";
+                ctx.fillStyle = isT ? accentCol : isSat ? "#3b82f6" : isSun ? "#ef4444" : "#2d2d3a";
+                ctx.fillText(DAYS[i], x + COL_W / 2, 24);
+                // 日付
+                ctx.font = "600 10px " + FONT;
+                ctx.fillStyle = "#b0b0c4";
+                ctx.fillText((dt.getMonth()+1)+"/"+dt.getDate(), x + COL_W / 2, 38);
+                // TODAY バッジ
+                if (isT) {
+                    const bw = 40, bh = 14, bx = x + COL_W/2 - bw/2, by = 43;
+                    ctx.fillStyle = isAdmin ? "#f59e0b" : "#6c63ff";
+                    roundRect(ctx, bx, by, bw, bh, 7); ctx.fill();
+                    ctx.font = "800 8px " + FONT; ctx.fillStyle = "#fff";
+                    ctx.fillText("TODAY", x + COL_W/2, by + 10);
                 }
             });
-            document.body.appendChild(clone);
 
-            const canvas=await window.html2canvas(clone,{
-                scale:2,          // 高解像度（2倍）で保存
-                useCORS:true,     // icon.png などの外部画像を含めるため CORS を許可
-                backgroundColor:isAdmin?"#fffbeb":"#f8f9ff", // ページ背景色に合わせる
-                width:800,        // 複製の固定幅と一致させる
-                logging:false,
+            // ── タイムライン本体 ──
+            // グリッド線
+            allH2.forEach(h => {
+                const y = HEAD_H + pct2(h * 60);
+                const isMj = mjH2.includes(h);
+                ctx.strokeStyle = isMj
+                    ? (isAdmin ? "rgba(245,158,11,0.18)" : "rgba(108,99,255,0.14)")
+                    : (isAdmin ? "rgba(245,158,11,0.08)" : "rgba(108,99,255,0.07)");
+                ctx.lineWidth = isMj ? 1.5 : 1;
+                ctx.beginPath(); ctx.moveTo(TLEFT, y); ctx.lineTo(W, y); ctx.stroke();
+                // 時刻ラベル
+                if (h < veH2) {
+                    ctx.font = (isMj ? "800 10px " : "500 9px ") + FONT;
+                    ctx.textAlign = "right";
+                    ctx.fillStyle = isMj ? (isAdmin ? "#d97706" : "#7c73ff") : "#d1d5db";
+                    const tf = h === vsH2 ? HEAD_H + 10 : h === veH2 ? HEAD_H + pct2(h*60) : HEAD_H + pct2(h*60) + 4;
+                    ctx.fillText(h + ":00", TLEFT - 5, tf);
+                }
             });
-            document.body.removeChild(clone); // 複製を削除
 
-            // 表示中の週をファイル名に含める
-            const wd=weekDates;
-            const fn="schedule_"+wd[0].getFullYear()+"-"+(wd[0].getMonth()+1)+"-"+wd[0].getDate()+"_"+wd[6].getFullYear()+"-"+(wd[6].getMonth()+1)+"-"+wd[6].getDate()+".png";
-            const dataUrl=canvas.toDataURL("image/png");
+            // 列の縦線 & 今日背景 & 予定ブロック
+            weekDates.forEach((dt, i) => {
+                const x  = TLEFT + i * COL_W;
+                const dk = dateKey(dt);
+                const isT = dk === dateKey(today2);
+                // 今日の背景
+                if (isT) { ctx.fillStyle = todayBg; ctx.fillRect(x, HEAD_H, COL_W, CAL_H); }
+                // 縦区切り線
+                ctx.strokeStyle = colBorder; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(x, HEAD_H); ctx.lineTo(x, HEAD_H + CAL_H); ctx.stroke();
+                // 予定ブロック
+                const daySch = schedules.filter(s => s.dateKey === dk);
+                daySch.forEach(s => {
+                    const pal = colorFor(s.name);
+                    const top  = HEAD_H + pct2(s.startMin);
+                    const ht   = Math.max(pct2(s.endMin) - pct2(s.startMin), 14);
+                    const bx   = x + 2, bw = COL_W - 4;
+                    // ブロック背景
+                    ctx.fillStyle = pal.bg;
+                    roundRect(ctx, bx, top, bw, ht, 7); ctx.fill();
+                    // 名前
+                    ctx.font = "800 13px " + FONT;
+                    ctx.textAlign = "left";
+                    ctx.fillStyle = pal.text;
+                    ctx.save();
+                    ctx.rect(bx, top, bw, ht); ctx.clip();
+                    ctx.fillText(s.name, bx + 6, top + 15);
+                    // 時刻（ブロックが十分な高さのとき）
+                    if (ht > 28) {
+                        ctx.font = "500 10px " + FONT;
+                        ctx.fillStyle = pal.text;
+                        ctx.globalAlpha = 0.85;
+                        ctx.fillText(fmtTime(s.startMin) + "〜" + fmtTime(s.endMin), bx + 6, top + 28);
+                        ctx.globalAlpha = 1;
+                    }
+                    ctx.restore();
+                });
+            });
 
-            // iOS Safari: navigator.share で写真アプリへ直接保存できる（Web Share API）
-            // Android Chrome も share API 対応なので同様に利用する
-            const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent);
-            const isAndroid=/Android/.test(navigator.userAgent);
-            if((isIOS||isAndroid)&&navigator.share&&navigator.canShare){
-                // dataUrl を Blob→File に変換して share する
-                const res=await fetch(dataUrl);
-                const blob=await res.blob();
-                const file=new File([blob], fn, {type:"image/png"});
-                if(navigator.canShare({files:[file]})){
-                    await navigator.share({files:[file], title:"倉庫スケジュール"});
+            // ファイル名（表示週の日付を使用）
+            const wd  = weekDates;
+            const fn  = "schedule_"+wd[0].getFullYear()+"-"+(wd[0].getMonth()+1)+"-"+wd[0].getDate()
+                       +"_"+wd[6].getFullYear()+"-"+(wd[6].getMonth()+1)+"-"+wd[6].getDate()+".png";
+            const dataUrl = canvas.toDataURL("image/png");
+
+            // iOS / Android: Web Share API で写真アプリへ直接保存
+            const isIOS     = /iP(hone|ad|od)/.test(navigator.userAgent);
+            const isAndroid = /Android/.test(navigator.userAgent);
+            if ((isIOS || isAndroid) && navigator.share && navigator.canShare) {
+                const res2 = await fetch(dataUrl);
+                const blob = await res2.blob();
+                const file = new File([blob], fn, {type: "image/png"});
+                if (navigator.canShare({files: [file]})) {
+                    await navigator.share({files: [file], title: "倉庫スケジュール"});
                     setCapturing(false);
                     return;
                 }
             }
-            // PC / share 非対応環境: 通常のダウンロード
-            const a=document.createElement("a");
-            a.href=dataUrl;
-            a.download=fn;
-            a.click();
-        } catch(e){
-            if(e&&e.name==="AbortError"){
+            // PC / share 非対応: 通常のダウンロード
+            const a = document.createElement("a");
+            a.href = dataUrl; a.download = fn; a.click();
+
+        } catch(e) {
+            if (e && e.name === "AbortError") {
                 // ユーザーが share シートをキャンセルした場合は何もしない
             } else {
                 console.error("capture error:", e);
@@ -460,6 +554,20 @@ function App() {
             }
         }
         setCapturing(false);
+    }
+
+    // Canvas に角丸矩形を描くヘルパー（roundRect が未実装のブラウザにも対応）
+    function roundRect(ctx, x, y, w, h, r){
+        if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+        else {
+            ctx.beginPath();
+            ctx.moveTo(x+r, y);
+            ctx.lineTo(x+w-r, y); ctx.arcTo(x+w, y, x+w, y+r, r);
+            ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w, y+h, x+w-r, y+h, r);
+            ctx.lineTo(x+r, y+h); ctx.arcTo(x, y+h, x, y+h-r, r);
+            ctx.lineTo(x, y+r); ctx.arcTo(x, y, x+r, y, r);
+            ctx.closePath();
+        }
     }
 
     // 時間のセレクター用配列（10〜20 時）
