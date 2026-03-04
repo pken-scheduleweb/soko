@@ -394,22 +394,70 @@ function App() {
                     document.head.appendChild(s);
                 });
             }
-            const canvas=await window.html2canvas(captureRef.current,{
+
+            // スマホでは overflow:hidden/auto によりスクロール外が描画されない問題を回避するため
+            // キャプチャ対象を画面外に複製してから描画する
+            const src=captureRef.current;
+            const clone=src.cloneNode(true);
+            // 複製をオフスクリーン（画面外左）に配置し、幅・折り返しを PC 相当に固定する
+            Object.assign(clone.style,{
+                position:"fixed", left:"-9999px", top:"0",
+                width:"800px",        // PC 幅に固定してカレンダーを全列表示
+                overflow:"visible",   // スクロールを解除して全体を描画
+                zIndex:"-1",
+            });
+            // 内部の overflow:auto / hidden 要素もすべて解除する
+            clone.querySelectorAll("*").forEach(el=>{
+                const cs=window.getComputedStyle(el);
+                if(cs.overflow==="auto"||cs.overflow==="hidden"||
+                   cs.overflowX==="auto"||cs.overflowX==="hidden"){
+                    el.style.overflow="visible";
+                    el.style.overflowX="visible";
+                }
+            });
+            document.body.appendChild(clone);
+
+            const canvas=await window.html2canvas(clone,{
                 scale:2,          // 高解像度（2倍）で保存
                 useCORS:true,     // icon.png などの外部画像を含めるため CORS を許可
                 backgroundColor:isAdmin?"#fffbeb":"#f8f9ff", // ページ背景色に合わせる
+                width:800,        // 複製の固定幅と一致させる
                 logging:false,
             });
+            document.body.removeChild(clone); // 複製を削除
+
             // 表示中の週をファイル名に含める
             const wd=weekDates;
             const fn="schedule_"+wd[0].getFullYear()+"-"+(wd[0].getMonth()+1)+"-"+wd[0].getDate()+"_"+wd[6].getFullYear()+"-"+(wd[6].getMonth()+1)+"-"+wd[6].getDate()+".png";
+            const dataUrl=canvas.toDataURL("image/png");
+
+            // iOS Safari: navigator.share で写真アプリへ直接保存できる（Web Share API）
+            // Android Chrome も share API 対応なので同様に利用する
+            const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent);
+            const isAndroid=/Android/.test(navigator.userAgent);
+            if((isIOS||isAndroid)&&navigator.share&&navigator.canShare){
+                // dataUrl を Blob→File に変換して share する
+                const res=await fetch(dataUrl);
+                const blob=await res.blob();
+                const file=new File([blob], fn, {type:"image/png"});
+                if(navigator.canShare({files:[file]})){
+                    await navigator.share({files:[file], title:"倉庫スケジュール"});
+                    setCapturing(false);
+                    return;
+                }
+            }
+            // PC / share 非対応環境: 通常のダウンロード
             const a=document.createElement("a");
-            a.href=canvas.toDataURL("image/png");
+            a.href=dataUrl;
             a.download=fn;
             a.click();
         } catch(e){
-            console.error("capture error:", e);
-            alert("画像の保存に失敗しました。");
+            if(e&&e.name==="AbortError"){
+                // ユーザーが share シートをキャンセルした場合は何もしない
+            } else {
+                console.error("capture error:", e);
+                alert("画像の保存に失敗しました。");
+            }
         }
         setCapturing(false);
     }
