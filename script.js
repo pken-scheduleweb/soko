@@ -604,7 +604,7 @@ function App() {
             <div style={{marginBottom:18}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
                 {/* アイコンバッジ（icon.png を表示。管理者モードで枠色が変わる） */}
-                <div style={{width:42,height:42,borderRadius:12,flexShrink:0,overflow:"hidden",border:isAdmin?"2.5px solid #f59e0b":"2.5px solid #a855f7",boxShadow:isAdmin?"0 3px 14px rgba(245,158,11,0.30)":"0 3px 14px rgba(108,99,255,0.30)",background:"#fff"}}>
+                <div style={{width:42,height:42,borderRadius:12,flexShrink:0,overflow:"hidden",outline:isAdmin?"2.5px solid #f59e0b":"2.5px solid #a855f7",outlineOffset:"1px",boxShadow:isAdmin?"0 3px 14px rgba(245,158,11,0.30)":"0 3px 14px rgba(108,99,255,0.30)",background:"#fff"}}>
                     <img src="icon.png" alt="P研" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
                 </div>
                 <div style={{flex:1,minWidth:0}}>
