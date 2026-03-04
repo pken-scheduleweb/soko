@@ -279,6 +279,21 @@ function App() {
     // 現在表示する週の日付配列（通常ユーザーは常に今週、管理者は weekOffset で変更可）
     const weekDates=buildWeekDates(isAdmin?weekOffset:0);
 
+    // 週ナビの移動制限（管理者のみ）
+    // 前方上限: 約1ヶ月前（-4週）まで
+    const minWeekOffset = -4;
+    // 後方上限: 予定が存在する最も遠い週 vs 今から+4週 のどちらか近い方まで
+    const maxWeekOffset = (() => {
+        if (!schedules.length) return 4;
+        // 全予定の dateKey から最大値を求め、今週の火曜から何週先かを計算する
+        const maxKey = schedules.reduce((m, s) => s.dateKey > m ? s.dateKey : m, "0000-00-00");
+        const todayTue = buildWeekDates(0)[0]; // 今週の火曜
+        const maxDate = new Date(maxKey);
+        const diffMs = maxDate - todayTue;
+        const diffWeeks = Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000));
+        return Math.min(diffWeeks + 1, 4); // 予定がある週の翌週まで、ただし+4週が上限
+    })();
+
     // Firebase からスケジュール一覧と管理者パスワードを読み込む
     async function load() {
         try {
@@ -352,6 +367,14 @@ function App() {
         if(passNew.length<6){setPassErr("新しいパスワードは6文字以上にしてください");return;}
         if(passNew!==passNew2){setPassErr("新しいパスワードが一致しません");return;}
         setAdminPass(passNew);await saveAdminPass(passNew);
+        setPassOk(true);setPassOld("");setPassNew("");setPassNew2("");
+    }
+
+    // 初期パスワードへのリセット：現在のパスワード入力なしで実行できる（管理者専用）
+    async function handleResetPass(){
+        if(!window.confirm("初期パスワードに戻します。よろしいですか？")) return;
+        setPassErr("");setPassOk(false);
+        setAdminPass(DEFAULT_PASS);await saveAdminPass(DEFAULT_PASS);
         setPassOk(true);setPassOld("");setPassNew("");setPassNew2("");
     }
 
@@ -597,10 +620,10 @@ function App() {
             {/* 操作ボタン行：週ナビ（管理者のみ）・更新・追加・PW変更・ログアウト/管理 */}
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 {isAdmin&&<>
-                {/* 管理者専用：週ナビゲーションボタン */}
-                <button className="wkbtn" onClick={()=>setWeekOffset(w=>w-1)}>◀ 前週</button>
+                {/* 管理者専用：週ナビゲーションボタン（前後1ヶ月＋予定がある週まで） */}
+                <button className="wkbtn" disabled={weekOffset<=minWeekOffset} onClick={()=>setWeekOffset(w=>Math.max(w-1,minWeekOffset))}>◀ 前週</button>
                 <button className="wkbtn" style={{background:weekOffset===0?"rgba(245,158,11,0.18)":"rgba(245,158,11,0.09)"}} onClick={()=>setWeekOffset(0)}>今週</button>
-                <button className="wkbtn" onClick={()=>setWeekOffset(w=>w+1)}>次週 ▶</button>
+                <button className="wkbtn" disabled={weekOffset>=maxWeekOffset} onClick={()=>setWeekOffset(w=>Math.min(w+1,maxWeekOffset))}>次週 ▶</button>
                 <div style={{width:1,height:24,background:"rgba(245,158,11,0.25)",margin:"0 2px"}}/>
                 </>}
                 {/* Firebase からデータを再取得する更新ボタン */}
@@ -725,7 +748,12 @@ function App() {
                 <div><label className="lbl">確認</label><input className="inp-a" type="password" value={passNew2} onChange={e=>{setPassNew2(e.target.value);setPassErr("");setPassOk(false);}} onKeyDown={e=>e.key==="Enter"&&handlePassChange()}/></div>
                 </div>
             </div>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:18}}>
+            {/* 初期パスワードリセット（区切り線で視覚的に分離） */}
+            <div style={{borderTop:"1px dashed rgba(245,158,11,0.25)",paddingTop:12,marginTop:14}}>
+                <p style={{fontSize:11,color:"#9ca3af",marginBottom:8}}>※ 現在のパスワード入力なしで実行できます</p>
+                <button className="btn btn-sm btn-ghost-amber" style={{width:"100%"}} onClick={handleResetPass}>初期パスワードに戻す</button>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
                 <button className="btn btn-ghost" onClick={()=>setShowPassChange(false)}>閉じる</button>
                 <button className="btn btn-amber" onClick={handlePassChange}>変更を保存</button>
             </div>
