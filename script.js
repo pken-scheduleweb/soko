@@ -790,7 +790,7 @@ function App() {
             </>}
         </div>
 
-        <div style={{maxWidth:1000,margin:"0 auto",padding:"20px 14px",position:"relative",zIndex:1}}>
+        <div style={{maxWidth:1160,margin:"0 auto",padding:"20px 14px",position:"relative",zIndex:1}}>
 
             {/* ヘッダー：アイコン・タイトル・表示週範囲 */}
             <div style={{marginBottom:18}}>
