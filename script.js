@@ -667,7 +667,7 @@ function App() {
                 {/* Firebase からデータを再取得する更新ボタン */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={load}>更新</button>
                 {/* カレンダーを画像として保存するボタン */}
-                <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={handleCapture} disabled={capturing}>{capturing?"保存中...":"📷 画像保存"}</button>
+                <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={handleCapture} disabled={capturing}>{capturing?"保存中...":"画像保存"}</button>
                 {/* 予定追加フォームを開くボタン */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-amber":"btn-purple")} onClick={openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
