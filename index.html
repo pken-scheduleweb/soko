@@ -7,9 +7,11 @@
 
     <!-- ファビコン（タブに表示されるアイコン） -->
     <!-- rel="icon" の PNG: Chrome / Firefox / Edge などモダンブラウザ向け -->
-    <link rel="icon" type="image/png" href="icon.png">
+    <!-- type="image/png" を明示することで Safari がファイルを正しく PNG と認識する -->
+    <link rel="icon" type="image/png" sizes="32x32" href="icon.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="icon.png">
     <!-- rel="shortcut icon": Safari を含む旧来ブラウザが最優先で参照する形式 -->
-    <link rel="shortcut icon" href="icon.png">
+    <link rel="shortcut icon" type="image/png" href="icon.png">
     <!-- Apple Touch Icon: iOS Safari でホーム画面に追加したときのアイコン（タブアイコンとは別） -->
     <link rel="apple-touch-icon" sizes="180x180" href="icon.png">
     <!-- Android Chrome / PWA 向け: manifest.json でアイコンを指定 -->

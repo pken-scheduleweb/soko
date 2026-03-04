@@ -286,14 +286,25 @@ function App() {
         const passSnap = await get(ref(db, DB_PASS_PATH));
         const loadedSch = schSnap.exists() ? schSnap.val() : [];
 
+        // 1ヶ月以上前の予定を自動削除する（読み込み直後に実行）
+        // 「1ヶ月以上前」= 今日から遡って同月同日より前の dateKey を持つ予定
+        const now = new Date();
+        const cutoff = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+        const cutoffKey = dateKey(cutoff); // YYYY-MM-DD 形式で比較
+        const filteredSch = loadedSch.filter(s => s.dateKey >= cutoffKey);
+        // 削除対象がある場合のみ Firebase を更新する
+        if (filteredSch.length < loadedSch.length) {
+            await set(ref(db, DB_SCH_PATH), filteredSch);
+        }
+
         // 読み込んだ名前を順番に色マップへ登録（既存の色割り当てを復元）
         nameColorMap.clear();
         const seen = [];
-        for (const s of loadedSch) {
+        for (const s of filteredSch) {
             const k = (s.name||"").trim().toLowerCase();
             if (k && !nameColorMap.has(k)) { colorFor(k); seen.push(k); }
         }
-        setSchedules(loadedSch);
+        setSchedules(filteredSch);
         // Firebase にパスワードが保存されていればそちらを優先する
         if (passSnap.exists() && passSnap.val()) setAdminPass(passSnap.val());
         } catch (e) {
