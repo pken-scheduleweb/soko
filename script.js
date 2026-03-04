@@ -587,11 +587,6 @@ function App() {
         // 管理者モードに応じてページ背景グラデーションを切り替える
         <div style={{minHeight:"100vh",background:isAdmin?"linear-gradient(160deg,#fffbeb 0%,#fef3c7 40%,#fff7ed 100%)":"linear-gradient(160deg,#f8f9ff 0%,#eef2ff 50%,#fdf0ff 100%)",fontFamily:"'M PLUS Rounded 1c','Noto Sans JP',sans-serif",transition:"background 0.4s"}}>
 
-        {/* icon.png を画面右上に固定表示（全ページ共通） */}
-        <div style={{position:"fixed",top:14,right:14,zIndex:50,pointerEvents:"none"}}>
-            <img src="icon.png" alt="P研" style={{width:48,height:48,borderRadius:12,objectFit:"cover",boxShadow:"0 3px 14px rgba(0,0,0,0.13)",display:"block"}}/>
-        </div>
-
         {/* 背景の装飾用ぼかし円（pointer-events:none でクリックに干渉しない） */}
         <div style={{position:"fixed",inset:0,overflow:"hidden",zIndex:0,pointerEvents:"none"}}>
             {isAdmin?<>
@@ -608,8 +603,10 @@ function App() {
             {/* ヘッダー：アイコン・タイトル・表示週範囲 */}
             <div style={{marginBottom:18}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
-                {/* 管理者モードで色が変わるアイコンバッジ */}
-                <div style={{width:42,height:42,borderRadius:12,flexShrink:0,background:isAdmin?"linear-gradient(135deg,#f59e0b,#d97706)":"linear-gradient(135deg,#6c63ff,#a855f7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:isAdmin?"0 3px 14px rgba(245,158,11,0.30)":"0 3px 14px rgba(108,99,255,0.30)"}}>{isAdmin?"⚙":"▦"}</div>
+                {/* アイコンバッジ（icon.png を表示。管理者モードで枠色が変わる） */}
+                <div style={{width:42,height:42,borderRadius:12,flexShrink:0,overflow:"hidden",border:isAdmin?"2.5px solid #f59e0b":"2.5px solid #a855f7",boxShadow:isAdmin?"0 3px 14px rgba(245,158,11,0.30)":"0 3px 14px rgba(108,99,255,0.30)",background:"#fff"}}>
+                    <img src="icon.png" alt="P研" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                </div>
                 <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
                     <h1 style={{fontSize:20,fontWeight:800,color:"#2d2d3a",letterSpacing:"-0.4px"}}>[P研] 倉庫スケジュール</h1>
