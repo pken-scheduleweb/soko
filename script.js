@@ -291,7 +291,7 @@ function App() {
         const maxDate = new Date(maxKey);
         const diffMs = maxDate - todayTue;
         const diffWeeks = Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000));
-        return Math.max(diffWeeks + 1, 4); // 予定がある週の翌週 vs +4週 の大きい方
+        return Math.min(diffWeeks + 1, 4); // 予定がある週の翌週まで、ただし+4週が上限
     })();
 
     // Firebase からスケジュール一覧と管理者パスワードを読み込む
@@ -587,6 +587,11 @@ function App() {
         // 管理者モードに応じてページ背景グラデーションを切り替える
         <div style={{minHeight:"100vh",background:isAdmin?"linear-gradient(160deg,#fffbeb 0%,#fef3c7 40%,#fff7ed 100%)":"linear-gradient(160deg,#f8f9ff 0%,#eef2ff 50%,#fdf0ff 100%)",fontFamily:"'M PLUS Rounded 1c','Noto Sans JP',sans-serif",transition:"background 0.4s"}}>
 
+        {/* icon.png を画面右上に固定表示（全ページ共通） */}
+        <div style={{position:"fixed",top:14,right:14,zIndex:50,pointerEvents:"none"}}>
+            <img src="icon.png" alt="P研" style={{width:48,height:48,borderRadius:12,objectFit:"cover",boxShadow:"0 3px 14px rgba(0,0,0,0.13)",display:"block"}}/>
+        </div>
+
         {/* 背景の装飾用ぼかし円（pointer-events:none でクリックに干渉しない） */}
         <div style={{position:"fixed",inset:0,overflow:"hidden",zIndex:0,pointerEvents:"none"}}>
             {isAdmin?<>
@@ -621,9 +626,9 @@ function App() {
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 {isAdmin&&<>
                 {/* 管理者専用：週ナビゲーションボタン（前後1ヶ月＋予定がある週まで） */}
-                <button className="wkbtn" disabled={weekOffset<=minWeekOffset} style={{opacity:weekOffset<=minWeekOffset?0.35:1,cursor:weekOffset<=minWeekOffset?"not-allowed":"pointer",transition:"opacity 0.2s"}} onClick={()=>setWeekOffset(w=>Math.max(w-1,minWeekOffset))}>◀ 前週</button>
+                <button className="wkbtn" disabled={weekOffset<=minWeekOffset} onClick={()=>setWeekOffset(w=>Math.max(w-1,minWeekOffset))}>◀ 前週</button>
                 <button className="wkbtn" style={{background:weekOffset===0?"rgba(245,158,11,0.18)":"rgba(245,158,11,0.09)"}} onClick={()=>setWeekOffset(0)}>今週</button>
-                <button className="wkbtn" disabled={weekOffset>=maxWeekOffset} style={{opacity:weekOffset>=maxWeekOffset?0.35:1,cursor:weekOffset>=maxWeekOffset?"not-allowed":"pointer",transition:"opacity 0.2s"}} onClick={()=>setWeekOffset(w=>Math.min(w+1,maxWeekOffset))}>次週 ▶</button>
+                <button className="wkbtn" disabled={weekOffset>=maxWeekOffset} onClick={()=>setWeekOffset(w=>Math.min(w+1,maxWeekOffset))}>次週 ▶</button>
                 <div style={{width:1,height:24,background:"rgba(245,158,11,0.25)",margin:"0 2px"}}/>
                 </>}
                 {/* Firebase からデータを再取得する更新ボタン */}
