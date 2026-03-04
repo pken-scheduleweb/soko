@@ -389,7 +389,7 @@ function App() {
         try {
             // ── レイアウト定数（PC 表示に合わせた固定値） ──
             const FONT   = "'M PLUS Rounded 1c', 'Noto Sans JP', sans-serif";
-            const W      = 1000;  // 画像の論理幅（px）。PC 表示（最大幅 1160px）に合わせた値
+            const W      = 1160;  // 画像の論理幅（px）。PC 表示（最大幅 1160px）に合わせた値
             const SCALE  = 2;     // Retina 対応倍率
             const TLEFT  = 48;    // 時刻ラベル列幅
             const HEAD_H = 58;    // 曜日ヘッダー行高さ
