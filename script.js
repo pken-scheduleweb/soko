@@ -543,14 +543,18 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
         if(!email){setRegErr("メールアドレスを入力してください");return;}
         if(!/^[^@]+@[^@]+\.[^@]+$/.test(email)){setRegErr("正しいメールアドレスを入力してください");return;}
         if(regPass.length<4){setRegErr("パスワードは4文字以上にしてください");return;}
-        // 重複チェック（既存ユーザーのメールアドレスと照合）
         const already = Object.values(users).some(u=>u.email===email);
         if(already){setRegErr("このメールアドレスはすでに登録されています");return;}
-        // Firebase キーに使えない文字（.@など）を避けるため、タイムスタンプIDをキーにする
-        const uid = "u" + Date.now();
-        const updated={...users,[uid]:{password:regPass,email}};
-        await set(ref(db,DB_USERS_PATH),updated);
-        setUsers(updated); setRegOk(true); setRegPass("");setRegEmail("");
+        setRegErr("登録中...");
+        try {
+            const uid = "u" + Date.now();
+            const newUser = {password:regPass, email};
+            await set(ref(db, DB_USERS_PATH + "/" + uid), newUser);
+            const updated = {...users, [uid]: newUser};
+            setUsers(updated); setRegOk(true); setRegErr(""); setRegPass(""); setRegEmail("");
+        } catch(e) {
+            setRegErr("登録に失敗しました: " + e.message);
+        }
     }
 
     // カレンダーを Canvas に直接描画して画像として保存する
