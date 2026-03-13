@@ -482,7 +482,7 @@ function App() {
                 const k1h=s.id+"_1h";
                 if(!notifiedSet.current.has(k1h)&&s.dateKey===tk&&nm>=s.startMin-60&&nm<s.startMin-55){
                     notifiedSet.current.add(k1h);
-                    await sendEmail(users[currentUser.name]?.email,"[P研 倉庫] 1時間後に予定があります",`1時間後に予定があります。
+                    await sendEmail(currentUser.email,"[P研 倉庫] 1時間後に予定があります",`1時間後に予定があります。
 ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endMin)}`);
                     addToast("📧 1時間前通知をメールで送信しました");
                 }
@@ -500,9 +500,9 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
 
     function handleUserLogin() {
         const u=users[userLoginName];
-        if(!u){setUserLoginErr("ユーザーが見つかりません");return;}
-        if(u.password!==userLoginPass){setUserLoginErr("パスワードが違います");return;}
-        setCurrentUser({name:userLoginName, email:u.email||""});
+        if(!u){setUserLoginErr("メールアドレスまたはパスワードが違います");return;}
+        if(u.password!==userLoginPass){setUserLoginErr("メールアドレスまたはパスワードが違います");return;}
+        setCurrentUser({name:userLoginName, email:u.email||userLoginName});
         setShowUserLogin(false);
         setUserLoginName("");setUserLoginPass("");setUserLoginErr("");
         get(ref(db,DB_NOTIF_PATH+"/"+userLoginName)).then(snap=>{
@@ -537,12 +537,15 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
 
     async function handleRegister() {
         setRegErr("");setRegOk(false);
-        if(!regName.trim()){setRegErr("名前を入力してください");return;}
-        if(regName in users){setRegErr("その名前はすでに使われています");return;}
+        const email = regEmail.trim();
+        if(!email){setRegErr("メールアドレスを入力してください");return;}
+        if(!/^[^@]+@[^@]+\.[^@]+$/.test(email)){setRegErr("正しいメールアドレスを入力してください");return;}
         if(regPass.length<4){setRegErr("パスワードは4文字以上にしてください");return;}
-        const updated={...users,[regName.trim()]:{password:regPass,email:regEmail.trim()}};
+        // メールアドレスをキーとして登録（重複チェック）
+        if(users[email]){setRegErr("このメールアドレスはすでに登録されています");return;}
+        const updated={...users,[email]:{password:regPass,email}};
         await set(ref(db,DB_USERS_PATH),updated);
-        setUsers(updated); setRegOk(true); setRegName("");setRegPass("");setRegEmail("");
+        setUsers(updated); setRegOk(true); setRegPass("");setRegEmail("");
     }
 
     // カレンダーを Canvas に直接描画して画像として保存する
@@ -1000,17 +1003,17 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
                 <button className={"btn btn-sm "+(isAdmin?"btn-amber":"btn-purple")} onClick={openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
                 <button className="btn btn-sm btn-ghost-amber" onClick={()=>{setShowPassChange(true);setPassErr("");setPassOk(false);setPassOld("");setPassNew("");setPassNew2("");}}>PW変更</button>
-                <button className="btn btn-sm btn-ghost-amber" onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegName("");setRegPass("");setRegTopic("");}}>👤 ユーザー追加</button>
                 <button className="btn btn-sm btn-ghost-amber" onClick={handleLogout}>ログアウト</button>
                 </>:<button className="btn btn-sm btn-ghost" onClick={()=>{setShowLogin(true);setLoginErr("");setLoginInput("");}}>管理</button>}
                 <div style={{width:1,height:22,background:"rgba(108,99,255,0.18)",margin:"0 2px"}}/>
                 {currentUser?(<>
-                    <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:"rgba(108,99,255,0.07)",border:"1px solid rgba(108,99,255,0.15)"}}>👤 {currentUser.name}</span>
-                    <button className="btn btn-sm btn-ghost" title={notifyOwn?"自分の予定通知 ON":"自分の予定通知 OFF"} onClick={()=>toggleNotif("own")} style={{fontSize:15,padding:"4px 8px"}}>{notifyOwn?"🔔":"🔕"}</button>
-                    <button className="btn btn-sm btn-ghost" title={notifyOthers?"他者の予定通知 ON":"他者の予定通知 OFF"} onClick={()=>toggleNotif("others")} style={{fontSize:15,padding:"4px 8px",opacity:notifyOthers?1:0.45}}>👥</button>
+                    <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:"rgba(108,99,255,0.07)",border:"1px solid rgba(108,99,255,0.15)"}}>{currentUser.email||currentUser.name}</span>
+                    <button className="btn btn-sm btn-ghost" title={notifyOwn?"自分の予定通知 ON":"自分の予定通知 OFF"} onClick={()=>toggleNotif("own")} style={{fontSize:15,padding:"4px 8px"}}>{notifyOwn?"通知ON":"通知OFF"}</button>
+                    <button className="btn btn-sm btn-ghost" title={notifyOthers?"他者の予定通知 ON":"他者の予定通知 OFF"} onClick={()=>toggleNotif("others")} style={{fontSize:12,padding:"4px 8px",opacity:notifyOthers?1:0.45}}>{notifyOthers?"他者通知ON":"他者通知OFF"}</button>
                     <button className="btn btn-sm btn-ghost" onClick={handleUserLogout} style={{color:"#9ca3af",fontSize:11}}>退出</button>
                 </>):(
-                    <button className="btn btn-sm btn-ghost" onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>🔑 ログイン</button>
+                    <><button className="btn btn-sm btn-ghost" onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>ログイン</button>
+                    <button className="btn btn-sm btn-ghost" onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegPass("");setRegEmail("");}}>新規登録</button></>
                 )}
             </div>
             </div>
@@ -1095,12 +1098,12 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
         {showUserLogin&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowUserLogin(false);}}>
             <div className="modal" style={{maxWidth:320}}>
             <div className="drag-bar"/>
-            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:4}}>🔑 ログイン</h2>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:4}}>ログイン</h2>
             <p style={{fontSize:11,color:"#9ca3af",marginBottom:14}}>アカウントにログインして通知機能を使えます。</p>
             {userLoginErr&&<div className="wbox" style={{marginBottom:10,fontSize:12}}>{userLoginErr}</div>}
             <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-                <div><label className="lbl">ユーザー名</label>
-                <input className="inp" value={userLoginName} onChange={e=>{setUserLoginName(e.target.value);setUserLoginErr("");}} autoFocus/></div>
+                <div><label className="lbl">メールアドレス</label>
+                <input className="inp" type="email" value={userLoginName} onChange={e=>{setUserLoginName(e.target.value);setUserLoginErr("");}} autoFocus/></div>
                 <div><label className="lbl">パスワード</label>
                 <input className="inp" type="password" value={userLoginPass} onChange={e=>{setUserLoginPass(e.target.value);setUserLoginErr("");}} onKeyDown={e=>e.key==="Enter"&&handleUserLogin()}/></div>
             </div>
@@ -1114,7 +1117,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
         {/* ── 初回ログイン：通知設定モーダル ── */}
         {showNotifSetup&&<div className="overlay">
             <div className="modal" style={{maxWidth:390}}>
-            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:6}}>🔔 通知設定</h2>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:6}}>通知設定</h2>
             <p style={{fontSize:12,color:"#6b7280",marginBottom:4}}>どの通知を受け取りますか？</p>
             <p style={{fontSize:11,color:"#9ca3af",marginBottom:16}}>通知はメール（Gmail 等）で届きます。</p>
             <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
@@ -1144,25 +1147,23 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             </div>
         </div>}
 
-        {/* ── 管理者：ユーザー追加モーダル ── */}
+        {/* ── 新規ユーザー登録モーダル ── */}
         {showRegister&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowRegister(false);}}>
             <div className="modal" style={{maxWidth:380}}>
             <div className="drag-bar"/>
-            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:4}}>👤 ユーザー追加</h2>
-            <p style={{fontSize:11,color:"#9ca3af",marginBottom:14}}>ログインできるユーザーを登録します。</p>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:4}}>新規登録</h2>
+            <p style={{fontSize:11,color:"#9ca3af",marginBottom:14}}>アカウントを作成してログインできるようになります。</p>
             {regErr&&<div className="wbox-a" style={{marginBottom:10,fontSize:12}}>{regErr}</div>}
             {regOk&&<div className="sbox" style={{marginBottom:10,fontSize:12}}>ユーザーを登録しました。</div>}
             <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-                <div><label className="lbl">ユーザー名</label>
-                <input className="inp-a" value={regName} onChange={e=>{setRegName(e.target.value);setRegErr("");setRegOk(false);}} autoFocus/></div>
+                <div><label className="lbl">メールアドレス</label>
+                <input className="inp-a" type="email" placeholder="例: user@gmail.com" value={regEmail} autoFocus onChange={e=>{setRegEmail(e.target.value);setRegErr("");setRegOk(false);}}/></div>
                 <div><label className="lbl">パスワード（4文字以上）</label>
-                <input className="inp-a" type="password" value={regPass} onChange={e=>{setRegPass(e.target.value);setRegErr("");setRegOk(false);}}/></div>
-                <div><label className="lbl">メールアドレス（通知用）</label>
-                <input className="inp-a" type="email" placeholder="例: user@gmail.com" value={regEmail} onChange={e=>{setRegEmail(e.target.value);setRegErr("");setRegOk(false);}} onKeyDown={e=>e.key==="Enter"&&handleRegister()}/></div>
+                <input className="inp-a" type="password" value={regPass} onChange={e=>{setRegPass(e.target.value);setRegErr("");setRegOk(false);}} onKeyDown={e=>e.key==="Enter"&&handleRegister()}/></div>
             </div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <button className="btn btn-ghost" onClick={()=>setShowRegister(false)}>閉じる</button>
-                <button className="btn btn-amber" onClick={handleRegister}>登録する</button>
+                <button className="btn btn-purple" onClick={handleRegister}>登録する</button>
             </div>
             </div>
         </div>}
