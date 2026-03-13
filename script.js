@@ -22,8 +22,19 @@ const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
 
 // Realtime Database 内のデータパス定数
-const DB_SCH_PATH  = "schedules";      // スケジュール一覧を保存するパス
-const DB_PASS_PATH = "adminPassword";  // 管理者パスワードを保存するパス
+const DB_SCH_PATH   = "schedules";
+const DB_PASS_PATH  = "adminPassword";
+const DB_USERS_PATH = "users";          // ユーザー { name: {password, email} }
+const DB_NOTIF_PATH = "userNotifPrefs"; // 通知設定 { notifyOwn, notifyOthers }
+
+// ── EmailJS 設定 ──
+// 取得方法: https://www.emailjs.com/ でアカウント作成後、
+//   SERVICE_ID  : Email Services タブの Service ID
+//   TEMPLATE_ID : Email Templates タブの Template ID（変数: {{to_email}} {{subject}} {{message}}）
+//   PUBLIC_KEY  : Account > API Keys の Public Key
+const EMAILJS_SERVICE_ID  = "service_1ycm187";
+const EMAILJS_TEMPLATE_ID = "template_t13ebb1";
+const EMAILJS_PUBLIC_KEY  = "oSDByclYIPt0J03C6";
 
 // カレンダー列ヘッダー用の曜日ラベル（火曜始まり）
 const DAYS_JA = ["火", "水", "木", "金", "土", "日", "月"];
@@ -48,9 +59,15 @@ const PALETTE = [
 // ページ内で同じ名前には常に同じ色を割り当てるために使う
 const nameColorMap = new Map();
 
-// 名前に対応するパレット色を返す。
-// 同一名前には一貫した色を、別名前には重複しない色を割り当てる
-function colorFor(name) {
+const customColorMap = new Map();
+
+function textColorForBg(hex) {
+    const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+    return (r*299+g*587+b*114)/1000>=145?"#2d2d3a":"#fff";
+}
+
+function colorFor(name, scheduleId) {
+    if(scheduleId!=null && customColorMap.has(scheduleId)) return customColorMap.get(scheduleId);
     const key = name.trim().toLowerCase();
     if (!key) return PALETTE[0]; // 空名前はデフォルト色
 
@@ -129,7 +146,7 @@ function defaultDayIndex(weekDates) {
 function newRow(weekDates, isAdmin) {
     const sh = defaultStartHour();
     const di = defaultDayIndex(weekDates);
-    return { _id: Math.random(), name:"", dayIndex:di, startH:sh, startM:0, endH:Math.min(sh+2, 20), endM:0, pin:"" };
+    return { _id: Math.random(), name:"", dayIndex:di, startH:sh, startM:0, endH:Math.min(sh+2, 20), endM:0, pin:"", color:"" };
 }
 
 // 予定1件の入力フォーム行コンポーネント
@@ -211,14 +228,21 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
             </div>
         )}
 
-        {/* 名前が入力されている場合に色付きプレビューバッジを表示 */}
-        {pal && (
-            <div style={{marginTop:10}}>
-            <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:24,background:pal.bg,color:pal.text,fontSize:12,fontWeight:700,boxShadow:"0 2px 8px "+pal.bg+"40"}}>
-                {row.name}　{DAYS_JA[row.dayIndex]}　{row.startH}:{String(row.startM).padStart(2, "0")}〜{row.endH}:{String(row.endM).padStart(2, "0")}
-            </span>
-            </div>
-        )}
+        <div style={{marginTop:10,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:11,fontWeight:800,color:isAdmin?"#b45309":"#7c73ff"}}>ブロックの色</span>
+            <input type="color" value={row.color||(pal?pal.bg:"#6c63ff")}
+                onChange={e=>updateRow(row._id,"color",e.target.value)}
+                style={{width:32,height:28,border:"none",borderRadius:7,cursor:"pointer",padding:2}}/>
+            {row.color&&<button onClick={()=>updateRow(row._id,"color","")}
+                style={{background:"none",border:"1px solid #e5e7eb",cursor:"pointer",fontSize:11,color:"#9ca3af",fontWeight:700,padding:"2px 8px",borderRadius:6,fontFamily:"inherit"}}>自動に戻す</button>}
+            <span style={{fontSize:11,color:"#b0b0c4"}}>{row.color?"カスタムカラー":"自動"}</span>
+        </div>
+        {pal&&(()=>{
+            const bg=row.color||pal.bg, tx=row.color?textColorForBg(row.color):pal.text;
+            return <div style={{marginTop:8}}><span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:24,background:bg,color:tx,fontSize:12,fontWeight:700,boxShadow:"0 2px 8px "+bg+"40"}}>
+                {row.name}　{DAYS_JA[row.dayIndex]}　{row.startH}:{String(row.startM).padStart(2,"0")}〜{row.endH}:{String(row.endM).padStart(2,"0")}
+            </span></div>;
+        })()}
         </div>
     );
 }
@@ -262,7 +286,27 @@ function App() {
     const [ctxMenu, setCtxMenu]=useState(null); // { x, y, s } または null
     const ctxRef=useRef(null);                 // メニュー DOM への参照（外側クリック検知用）
     const captureRef=useRef(null);             // カレンダー部分への参照（画像保存用）
-    const [capturing, setCapturing]=useState(false); // 画像保存処理中フラグ
+    const [capturing, setCapturing]=useState(false);
+
+    // ユーザーログイン関連
+    const [users, setUsers]=useState({});
+    const [currentUser, setCurrentUser]=useState(null); // {name, ntfyTopic} or null
+    const [showUserLogin, setShowUserLogin]=useState(false);
+    const [userLoginName, setUserLoginName]=useState("");
+    const [userLoginPass, setUserLoginPass]=useState("");
+    const [userLoginErr, setUserLoginErr]=useState("");
+    const [showRegister, setShowRegister]=useState(false);
+    const [regName, setRegName]=useState("");
+    const [regPass, setRegPass]=useState("");
+    const [regEmail, setRegEmail]=useState("");
+    const [regErr, setRegErr]=useState("");
+    const [regOk, setRegOk]=useState(false);
+
+    // 通知設定
+    const [notifyOwn, setNotifyOwn]=useState(true);
+    const [notifyOthers, setNotifyOthers]=useState(true);
+    const [showNotifSetup, setShowNotifSetup]=useState(false);
+    const [toastList, setToastList]=useState([]);
 
     // 編集モーダル関連の状態
     const [editTarget, setEditTarget]=useState(null);   // 編集対象の予定オブジェクト
@@ -315,15 +359,17 @@ function App() {
         }
 
         // 読み込んだ名前を順番に色マップへ登録（既存の色割り当てを復元）
-        nameColorMap.clear();
+        nameColorMap.clear(); customColorMap.clear();
         const seen = [];
         for (const s of filteredSch) {
             const k = (s.name||"").trim().toLowerCase();
             if (k && !nameColorMap.has(k)) { colorFor(k); seen.push(k); }
+            if (s.color) customColorMap.set(s.id,{bg:s.color,text:textColorForBg(s.color)});
         }
         setSchedules(filteredSch);
-        // Firebase にパスワードが保存されていればそちらを優先する
         if (passSnap.exists() && passSnap.val()) setAdminPass(passSnap.val());
+        const usersSnap = await get(ref(db, DB_USERS_PATH));
+        if (usersSnap.exists()) setUsers(usersSnap.val());
         } catch (e) {
         console.error("Firebase read error:", e);
         setSchedules([]);
@@ -378,6 +424,125 @@ function App() {
         setPassErr("");setPassOk(false);
         setAdminPass(DEFAULT_PASS);await saveAdminPass(DEFAULT_PASS);
         setPassOk(true);setPassOld("");setPassNew("");setPassNew2("");
+    }
+
+    // ── ユーザーログイン・EmailJS通知ヘルパー ──
+
+    function addToast(msg) {
+        const id=Date.now();
+        setToastList(l=>[...l,{id,msg}]);
+        setTimeout(()=>setToastList(l=>l.filter(t=>t.id!==id)),5000);
+    }
+
+    // EmailJS でメールを1通送信（未設定なら何もしない）
+    async function sendEmail(toEmail, subject, message) {
+        if(EMAILJS_SERVICE_ID==="YOUR_SERVICE_ID") return;
+        if(!window.emailjs){
+            await new Promise((res,rej)=>{
+                const s=document.createElement("script");
+                s.src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
+                s.onload=()=>{ window.emailjs.init(EMAILJS_PUBLIC_KEY); res(); };
+                s.onerror=rej;
+                document.head.appendChild(s);
+            });
+        }
+        try {
+            await window.emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID,
+                {to_email:toEmail, subject, message});
+        } catch(e){ console.warn("EmailJS送信エラー:",e); }
+    }
+
+    // 他ユーザー全員（notifyOthers=true）にメール通知
+    async function notifyOtherUsers(addedBy, item) {
+        const notifPrefsSnap = await get(ref(db, DB_NOTIF_PATH));
+        const prefs = notifPrefsSnap.exists() ? notifPrefsSnap.val() : {};
+        for(const [uname, udata] of Object.entries(users)){
+            if(currentUser && uname===currentUser.name) continue;
+            const pref=prefs[uname];
+            if(!pref||!pref.notifyOthers) continue;
+            if(!udata.email) continue;
+            const subject=`[P研 倉庫] ${addedBy} さんが予定を追加しました`;
+            const message=`${addedBy} さんが予定を追加しました。
+日時：${item.dateKey} ${DAYS_JA[item.dayIndex]}曜 ${fmtTime(item.startMin)}〜${fmtTime(item.endMin)}
+名前：${item.name}`;
+            await sendEmail(udata.email, subject, message);
+        }
+    }
+
+    // 自分の予定の1時間前・開始時刻をメール通知するタイマー
+    const notifiedSet = useRef(new Set());
+    useEffect(()=>{
+        if(!currentUser||!notifyOwn) return;
+        const timer=setInterval(async()=>{
+            const now=new Date();
+            const tk=dateKey(now);
+            const nm=now.getHours()*60+now.getMinutes();
+            const mine=schedules.filter(s=>s.name.trim().toLowerCase()===(currentUser.name||"").trim().toLowerCase()&&s.dateKey>=tk);
+            for(const s of mine){
+                const k1h=s.id+"_1h";
+                if(!notifiedSet.current.has(k1h)&&s.dateKey===tk&&nm>=s.startMin-60&&nm<s.startMin-55){
+                    notifiedSet.current.add(k1h);
+                    await sendEmail(users[currentUser.name]?.email,"[P研 倉庫] 1時間後に予定があります",`1時間後に予定があります。
+${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endMin)}`);
+                    addToast("📧 1時間前通知をメールで送信しました");
+                }
+                const ks=s.id+"_start";
+                if(!notifiedSet.current.has(ks)&&s.dateKey===tk&&nm>=s.startMin&&nm<s.startMin+5){
+                    notifiedSet.current.add(ks);
+                    await sendEmail(users[currentUser.name]?.email,"[P研 倉庫] 予定の時刻になりました",`予定の時刻になりました。
+${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endMin)}`);
+                    addToast("📧 開始時刻の通知をメールで送信しました");
+                }
+            }
+        },60000);
+        return ()=>clearInterval(timer);
+    },[currentUser,notifyOwn,schedules]);
+
+    function handleUserLogin() {
+        const u=users[userLoginName];
+        if(!u){setUserLoginErr("ユーザーが見つかりません");return;}
+        if(u.password!==userLoginPass){setUserLoginErr("パスワードが違います");return;}
+        setCurrentUser({name:userLoginName, email:u.email||""});
+        setShowUserLogin(false);
+        setUserLoginName("");setUserLoginPass("");setUserLoginErr("");
+        get(ref(db,DB_NOTIF_PATH+"/"+userLoginName)).then(snap=>{
+            if(snap.exists()){
+                const p=snap.val();
+                setNotifyOwn(p.notifyOwn!==false);
+                setNotifyOthers(p.notifyOthers!==false);
+            } else {
+                setShowNotifSetup(true);
+            }
+        });
+    }
+
+    async function handleNotifSetup(own, others) {
+        setNotifyOwn(own); setNotifyOthers(others);
+        setShowNotifSetup(false);
+        if(currentUser) await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.name),{notifyOwn:own,notifyOthers:others});
+    }
+
+    async function toggleNotif(type) {
+        if(!currentUser) return;
+        if(type==="own"){
+            const v=!notifyOwn; setNotifyOwn(v);
+            await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.name+"/notifyOwn"),v);
+        } else {
+            const v=!notifyOthers; setNotifyOthers(v);
+            await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.name+"/notifyOthers"),v);
+        }
+    }
+
+    function handleUserLogout(){ setCurrentUser(null); notifiedSet.current.clear(); }
+
+    async function handleRegister() {
+        setRegErr("");setRegOk(false);
+        if(!regName.trim()){setRegErr("名前を入力してください");return;}
+        if(regName in users){setRegErr("その名前はすでに使われています");return;}
+        if(regPass.length<4){setRegErr("パスワードは4文字以上にしてください");return;}
+        const updated={...users,[regName.trim()]:{password:regPass,email:regEmail.trim()}};
+        await set(ref(db,DB_USERS_PATH),updated);
+        setUsers(updated); setRegOk(true); setRegName("");setRegPass("");setRegEmail("");
     }
 
     // カレンダーを Canvas に直接描画して画像として保存する
@@ -647,7 +812,7 @@ function App() {
         // 2. 各行を Firebase 保存用オブジェクト（候補）に変換
         const candidates = rows.map(row=>{
         const s=row.startH*60+row.startM, e=row.endH*60+row.endM;
-        return{_id:row._id, name:row.name.trim(), dateKey:dateKey(weekDates[row.dayIndex]), dayIndex:row.dayIndex, startMin:s, endMin:e, pin:row.pin};
+        return{_id:row._id, name:row.name.trim(), dateKey:dateKey(weekDates[row.dayIndex]), dayIndex:row.dayIndex, startMin:s, endMin:e, pin:row.pin, color:row.color||''};
         });
 
         // 3. 重複チェック：既存スケジュールおよびバッチ内の他行と比較
@@ -676,8 +841,15 @@ function App() {
         // 4. 全チェック通過 → Firebase に保存
         setSaving(true);
         // id は Date.now() + インデックスで一意にする
-        const newItems=candidates.map((c,i)=>({id:Date.now()+i,name:c.name,dateKey:c.dateKey,dayIndex:c.dayIndex,startMin:c.startMin,endMin:c.endMin,pin:c.pin}));
-        const upd=[...schedules, ...newItems];setSchedules(upd);await saveSch(upd);
+        const newItems=candidates.map((c,i)=>{
+            const id=Date.now()+i;
+            if(c.color) customColorMap.set(id,{bg:c.color,text:textColorForBg(c.color)});
+            return {id,name:c.name,dateKey:c.dateKey,dayIndex:c.dayIndex,startMin:c.startMin,endMin:c.endMin,pin:c.pin,color:c.color||""};
+        });
+        const upd=[...schedules,...newItems];setSchedules(upd);await saveSch(upd);
+        // 他ユーザーへのメール通知
+        const addedBy=currentUser?currentUser.name:"（未ログイン）";
+        for(const item of newItems){ await notifyOtherUsers(addedBy, item); }
         setSaving(false);setShowForm(false);setRows([]);setGlobalWarn("");setBulkPin("");
     }
 
@@ -827,10 +999,19 @@ function App() {
                 {/* 予定追加フォームを開くボタン */}
                 <button className={"btn btn-sm "+(isAdmin?"btn-amber":"btn-purple")} onClick={openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
-                {/* 管理者専用：パスワード変更・ログアウトボタン */}
                 <button className="btn btn-sm btn-ghost-amber" onClick={()=>{setShowPassChange(true);setPassErr("");setPassOk(false);setPassOld("");setPassNew("");setPassNew2("");}}>PW変更</button>
+                <button className="btn btn-sm btn-ghost-amber" onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegName("");setRegPass("");setRegTopic("");}}>👤 ユーザー追加</button>
                 <button className="btn btn-sm btn-ghost-amber" onClick={handleLogout}>ログアウト</button>
                 </>:<button className="btn btn-sm btn-ghost" onClick={()=>{setShowLogin(true);setLoginErr("");setLoginInput("");}}>管理</button>}
+                <div style={{width:1,height:22,background:"rgba(108,99,255,0.18)",margin:"0 2px"}}/>
+                {currentUser?(<>
+                    <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:"rgba(108,99,255,0.07)",border:"1px solid rgba(108,99,255,0.15)"}}>👤 {currentUser.name}</span>
+                    <button className="btn btn-sm btn-ghost" title={notifyOwn?"自分の予定通知 ON":"自分の予定通知 OFF"} onClick={()=>toggleNotif("own")} style={{fontSize:15,padding:"4px 8px"}}>{notifyOwn?"🔔":"🔕"}</button>
+                    <button className="btn btn-sm btn-ghost" title={notifyOthers?"他者の予定通知 ON":"他者の予定通知 OFF"} onClick={()=>toggleNotif("others")} style={{fontSize:15,padding:"4px 8px",opacity:notifyOthers?1:0.45}}>👥</button>
+                    <button className="btn btn-sm btn-ghost" onClick={handleUserLogout} style={{color:"#9ca3af",fontSize:11}}>退出</button>
+                </>):(
+                    <button className="btn btn-sm btn-ghost" onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>🔑 ログイン</button>
+                )}
             </div>
             </div>
 
@@ -882,7 +1063,7 @@ function App() {
 
                         {/* 予定ブロック：上位置・高さを pct() でパーセント指定 */}
                         {daySch.map(s=>{
-                            const pal=colorFor(s.name);
+                            const pal=colorFor(s.name,s.id);
                             const top=pct(s.startMin), ht=pct(s.endMin)-top;
                             return(<div key={s.id} className="blk ba" style={{top:top+"%",height:Math.max(ht,3.5)+"%",background:"linear-gradient(160deg,"+pal.bg+"f0,"+pal.bg+"c8)",boxShadow:"0 2px 10px "+pal.bg+"45"}}
                             // 左クリック / タップ：詳細モーダルを開く
@@ -908,6 +1089,91 @@ function App() {
                     ? "タッチで詳細・編集・削除"
                     : "左クリックで詳細 / 右クリックで編集・削除"}
             </p>
+        </div>
+
+        {/* ── ユーザーログインモーダル ── */}
+        {showUserLogin&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowUserLogin(false);}}>
+            <div className="modal" style={{maxWidth:320}}>
+            <div className="drag-bar"/>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:4}}>🔑 ログイン</h2>
+            <p style={{fontSize:11,color:"#9ca3af",marginBottom:14}}>アカウントにログインして通知機能を使えます。</p>
+            {userLoginErr&&<div className="wbox" style={{marginBottom:10,fontSize:12}}>{userLoginErr}</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                <div><label className="lbl">ユーザー名</label>
+                <input className="inp" value={userLoginName} onChange={e=>{setUserLoginName(e.target.value);setUserLoginErr("");}} autoFocus/></div>
+                <div><label className="lbl">パスワード</label>
+                <input className="inp" type="password" value={userLoginPass} onChange={e=>{setUserLoginPass(e.target.value);setUserLoginErr("");}} onKeyDown={e=>e.key==="Enter"&&handleUserLogin()}/></div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button className="btn btn-ghost" onClick={()=>setShowUserLogin(false)}>キャンセル</button>
+                <button className="btn btn-purple" onClick={handleUserLogin}>ログイン</button>
+            </div>
+            </div>
+        </div>}
+
+        {/* ── 初回ログイン：通知設定モーダル ── */}
+        {showNotifSetup&&<div className="overlay">
+            <div className="modal" style={{maxWidth:390}}>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:6}}>🔔 通知設定</h2>
+            <p style={{fontSize:12,color:"#6b7280",marginBottom:4}}>どの通知を受け取りますか？</p>
+            <p style={{fontSize:11,color:"#9ca3af",marginBottom:16}}>通知はメール（Gmail 等）で届きます。</p>
+            <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
+                {[
+                    {key:"own",   label:"自分の予定（1時間前・開始時刻）",desc:"自分の名前の予定が近づいたら通知が届きます"},
+                    {key:"others",label:"他の人が予定を追加したとき",    desc:"誰かが新しく予定を追加したときに通知が届きます"},
+                ].map(item=>{
+                    const val=item.key==="own"?notifyOwn:notifyOthers;
+                    const set2=item.key==="own"?setNotifyOwn:setNotifyOthers;
+                    return(
+                    <div key={item.key} onClick={()=>set2(v=>!v)}
+                        style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 14px",borderRadius:12,
+                        border:"2px solid "+(val?"#6c63ff":"rgba(108,99,255,0.15)"),
+                        background:val?"rgba(108,99,255,0.04)":"transparent",cursor:"pointer"}}>
+                        <div style={{width:22,height:22,borderRadius:6,background:val?"#6c63ff":"#e5e7eb",
+                            display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                            {val&&<span style={{color:"#fff",fontSize:14,fontWeight:900}}>✓</span>}
+                        </div>
+                        <div>
+                            <div style={{fontSize:13,fontWeight:700,color:"#2d2d3a"}}>{item.label}</div>
+                            <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{item.desc}</div>
+                        </div>
+                    </div>);
+                })}
+            </div>
+            <button className="btn btn-purple" style={{width:"100%"}} onClick={()=>handleNotifSetup(notifyOwn,notifyOthers)}>この設定で始める</button>
+            </div>
+        </div>}
+
+        {/* ── 管理者：ユーザー追加モーダル ── */}
+        {showRegister&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowRegister(false);}}>
+            <div className="modal" style={{maxWidth:380}}>
+            <div className="drag-bar"/>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:4}}>👤 ユーザー追加</h2>
+            <p style={{fontSize:11,color:"#9ca3af",marginBottom:14}}>ログインできるユーザーを登録します。</p>
+            {regErr&&<div className="wbox-a" style={{marginBottom:10,fontSize:12}}>{regErr}</div>}
+            {regOk&&<div className="sbox" style={{marginBottom:10,fontSize:12}}>ユーザーを登録しました。</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                <div><label className="lbl">ユーザー名</label>
+                <input className="inp-a" value={regName} onChange={e=>{setRegName(e.target.value);setRegErr("");setRegOk(false);}} autoFocus/></div>
+                <div><label className="lbl">パスワード（4文字以上）</label>
+                <input className="inp-a" type="password" value={regPass} onChange={e=>{setRegPass(e.target.value);setRegErr("");setRegOk(false);}}/></div>
+                <div><label className="lbl">メールアドレス（通知用）</label>
+                <input className="inp-a" type="email" placeholder="例: user@gmail.com" value={regEmail} onChange={e=>{setRegEmail(e.target.value);setRegErr("");setRegOk(false);}} onKeyDown={e=>e.key==="Enter"&&handleRegister()}/></div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button className="btn btn-ghost" onClick={()=>setShowRegister(false)}>閉じる</button>
+                <button className="btn btn-amber" onClick={handleRegister}>登録する</button>
+            </div>
+            </div>
+        </div>}
+
+        {/* ── トースト通知 ── */}
+        <div style={{position:"fixed",bottom:20,right:16,zIndex:3000,display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end",pointerEvents:"none"}}>
+            {toastList.map(t=>(
+                <div key={t.id} style={{background:"rgba(45,45,58,0.92)",color:"#fff",borderRadius:12,padding:"10px 16px",fontSize:13,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,0.25)",maxWidth:280,lineHeight:1.5}}>
+                    {t.msg}
+                </div>
+            ))}
         </div>
 
         {/* 管理者ログインモーダル */}
