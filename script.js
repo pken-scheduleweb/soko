@@ -456,9 +456,9 @@ function App() {
     async function notifyOtherUsers(addedBy, item) {
         const notifPrefsSnap = await get(ref(db, DB_NOTIF_PATH));
         const prefs = notifPrefsSnap.exists() ? notifPrefsSnap.val() : {};
-        for(const [uname, udata] of Object.entries(users)){
-            if(currentUser && uname===currentUser.name) continue;
-            const pref=prefs[uname];
+        for(const [uid, udata] of Object.entries(users)){
+            if(currentUser && uid===currentUser.uid) continue;
+            const pref=prefs[uid];
             if(!pref||!pref.notifyOthers) continue;
             if(!udata.email) continue;
             const subject=`[P研 倉庫] ${addedBy} さんが予定を追加しました`;
@@ -499,13 +499,15 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
     },[currentUser,notifyOwn,schedules]);
 
     function handleUserLogin() {
-        const u=users[userLoginName];
-        if(!u){setUserLoginErr("メールアドレスまたはパスワードが違います");return;}
+        // メールアドレスでユーザーを検索（キーではなく email フィールドで照合）
+        const entry = Object.entries(users).find(([,u])=>u.email===userLoginName);
+        if(!entry){setUserLoginErr("メールアドレスまたはパスワードが違います");return;}
+        const [uid, u] = entry;
         if(u.password!==userLoginPass){setUserLoginErr("メールアドレスまたはパスワードが違います");return;}
-        setCurrentUser({name:userLoginName, email:u.email||userLoginName});
+        setCurrentUser({uid, name:u.email, email:u.email});
         setShowUserLogin(false);
         setUserLoginName("");setUserLoginPass("");setUserLoginErr("");
-        get(ref(db,DB_NOTIF_PATH+"/"+userLoginName)).then(snap=>{
+        get(ref(db,DB_NOTIF_PATH+"/"+uid)).then(snap=>{
             if(snap.exists()){
                 const p=snap.val();
                 setNotifyOwn(p.notifyOwn!==false);
@@ -519,17 +521,17 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
     async function handleNotifSetup(own, others) {
         setNotifyOwn(own); setNotifyOthers(others);
         setShowNotifSetup(false);
-        if(currentUser) await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.name),{notifyOwn:own,notifyOthers:others});
+        if(currentUser) await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.uid),{notifyOwn:own,notifyOthers:others});
     }
 
     async function toggleNotif(type) {
         if(!currentUser) return;
         if(type==="own"){
             const v=!notifyOwn; setNotifyOwn(v);
-            await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.name+"/notifyOwn"),v);
+            await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.uid+"/notifyOwn"),v);
         } else {
             const v=!notifyOthers; setNotifyOthers(v);
-            await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.name+"/notifyOthers"),v);
+            await set(ref(db,DB_NOTIF_PATH+"/"+currentUser.uid+"/notifyOthers"),v);
         }
     }
 
@@ -541,9 +543,12 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
         if(!email){setRegErr("メールアドレスを入力してください");return;}
         if(!/^[^@]+@[^@]+\.[^@]+$/.test(email)){setRegErr("正しいメールアドレスを入力してください");return;}
         if(regPass.length<4){setRegErr("パスワードは4文字以上にしてください");return;}
-        // メールアドレスをキーとして登録（重複チェック）
-        if(users[email]){setRegErr("このメールアドレスはすでに登録されています");return;}
-        const updated={...users,[email]:{password:regPass,email}};
+        // 重複チェック（既存ユーザーのメールアドレスと照合）
+        const already = Object.values(users).some(u=>u.email===email);
+        if(already){setRegErr("このメールアドレスはすでに登録されています");return;}
+        // Firebase キーに使えない文字（.@など）を避けるため、タイムスタンプIDをキーにする
+        const uid = "u" + Date.now();
+        const updated={...users,[uid]:{password:regPass,email}};
         await set(ref(db,DB_USERS_PATH),updated);
         setUsers(updated); setRegOk(true); setRegPass("");setRegEmail("");
     }
