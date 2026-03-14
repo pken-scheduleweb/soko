@@ -884,12 +884,10 @@ function App(){
             if(x._id !== id) return x;
             const updated = {...x, [key]:val, warn:"", forceOk:false};
             if(key === "startH"){
-                // 開始時刻を変えたとき：終了が開始以下になる場合のみ終了を 開始+2h に揃える
-                if(+val >= updated.endH){
-                    updated.endH = Math.min(+val+2, 20);
-                }
+                // 開始時刻を変えたとき：終了が開始以下になる場合のみ終了を開始+2hに揃える
+                if(+val >= updated.endH){ updated.endH = Math.min(+val + 2, 20); }
             }
-            // endH / endM を変えたとき：開始時刻はそのままにする
+            // endH / endM を変えたとき：開始時刻はそのまま（何もしない）
             return updated;
         }));
     }
