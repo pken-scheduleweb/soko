@@ -153,7 +153,7 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
     const pal = row.name.trim() ? colorFor(row.name.trim()) : null;
     return (
         // 重複警告がある行はカード背景を赤/黄に変える
-        <div className={(isAdmin?"row-card-a":"row-card") + (row.warn?" warn-row":"")} style = {{marginBottom:12}}>
+        <div className = {(isAdmin?"row-card-a":"row-card") + (row.warn?" warn-row":"")} style = {{marginBottom:12}}>
 
         {/* 2行以上ある場合のみ行削除ボタンを右上に表示 */}
         {rowCount > 1 && (
@@ -166,14 +166,14 @@ function RowEditor({row, idx, rowCount, isAdmin, cls, weekDates, hourRange, minu
         {/* 名前 + PIN 入力欄 */}
         <div style = {{display:"grid", gridTemplateColumns:"1fr 120px", gap:10, marginBottom:10}}>
             <div>
-            <label className="lbl">名前</label>
-            <input className={cls} placeholder="名前" value={row.name} onChange={e => updateRow(row._id,"name",e.target.value)}/>
+            <label className = "lbl">名前</label>
+            <input className = {cls} placeholder = "名前" value = {row.name} onChange = {e => updateRow(row._id,"name",e.target.value)}/>
             </div>
             <div>
-                <label className="lbl">PIN（4桁）</label>
+                <label className = "lbl">PIN（4桁）</label>
                 {/* inputMode="numeric" でスマホに数字キーパッドを表示 */}
-                <input className={cls} type="password" inputMode="numeric" maxLength={4}
-                value={row.pin||""}
+                <input className = {cls} type = "password" inputMode = "numeric" maxLength = {4}
+                value={row.pin || ""}
                 onChange={e => updateRow(row._id, "pin", e.target.value.replace(/[^0-9]/g,"").slice(0, 4))}/>
             </div>
         </div>
