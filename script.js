@@ -301,9 +301,6 @@ function App() {
     const [regEmail, setRegEmail]=useState("");
     const [regErr, setRegErr]=useState("");
     const [regOk, setRegOk]=useState(false);
-    const [showDeleteAccount, setShowDeleteAccount]=useState(false);
-    const [deleteConfirm, setDeleteConfirm]=useState("");
-    const [deleteErr, setDeleteErr]=useState("");
 
     // 通知設定
     const [notifyOwn, setNotifyOwn]=useState(true);
@@ -460,11 +457,14 @@ function App() {
         const notifPrefsSnap = await get(ref(db, DB_NOTIF_PATH));
         const prefs = notifPrefsSnap.exists() ? notifPrefsSnap.val() : {};
         for(const [uid, udata] of Object.entries(users)){
-            if(!udata.email) continue;
+            if(currentUser && uid===currentUser.uid) continue;
             const pref=prefs[uid];
-            if(pref && pref.notifyOthers===false) continue;
-            const subject=`[P研 倉庫] ${item.name} さんが予定を追加しました`;
-            const message=`${item.name} さんが予定を追加しました。\n日時：${item.dateKey} ${DAYS_JA[item.dayIndex]}曜 ${fmtTime(item.startMin)}〜${fmtTime(item.endMin)}`;
+            if(!pref||!pref.notifyOthers) continue;
+            if(!udata.email) continue;
+            const subject=`[P研 倉庫] ${addedBy} さんが予定を追加しました`;
+            const message=`${addedBy} さんが予定を追加しました。
+日時：${item.dateKey} ${DAYS_JA[item.dayIndex]}曜 ${fmtTime(item.startMin)}〜${fmtTime(item.endMin)}
+名前：${item.name}`;
             await sendEmail(udata.email, subject, message);
         }
     }
@@ -536,21 +536,6 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
     }
 
     function handleUserLogout(){ setCurrentUser(null); notifiedSet.current.clear(); }
-
-    async function handleDeleteAccount() {
-        if(deleteConfirm !== currentUser.email){ setDeleteErr("メールアドレスが一致しません"); return; }
-        try {
-            await set(ref(db, DB_USERS_PATH + "/" + currentUser.uid), null);
-            await set(ref(db, DB_NOTIF_PATH + "/" + currentUser.uid), null);
-            const updated = {...users};
-            delete updated[currentUser.uid];
-            setUsers(updated);
-            setShowDeleteAccount(false);
-            handleUserLogout();
-        } catch(e) {
-            setDeleteErr("削除に失敗しました: " + e.message);
-        }
-    }
 
     async function handleRegister() {
         setRegErr("");setRegOk(false);
@@ -765,7 +750,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
     // 時間のセレクター用配列（10〜20 時）
     const hourRange=Array.from({length:11},(_,i)=>i+10);
     // 分のセレクター用配列：管理者は 5 分刻み、一般は 15 分刻み
-    const minuteSteps=isAdmin?Array.from({length:12},(_,i)=>i*5):[0,10,20,30,40,50];
+    const minuteSteps=isAdmin?Array.from({length:12},(_,i)=>i*5):[0,15,30,45];
 
     // 既存スケジュールとの時間重複チェック。
     // excludeId を指定するとその予定を除外して比較する（編集時に自分自身を除くため）。
@@ -1011,9 +996,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             </div>
 
             {/* 操作ボタン行：週ナビ（管理者のみ）・更新・追加・PW変更・ログアウト/管理 */}
-            {/* スマホ：横スクロール / PC：折り返し */}
-            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",marginLeft:-4,paddingLeft:4,paddingBottom:2}}>
-            <div className="btn-row" style={{display:"flex",gap:6,alignItems:"center"}}>
+            <div className="btn-scroll-wrap"><div className="btn-scroll-inner">
                 {isAdmin&&<>
                 {/* 管理者専用：週ナビゲーションボタン（前後1ヶ月＋予定がある週まで） */}
                 <button className="wkbtn" disabled={weekOffset<=minWeekOffset} onClick={()=>setWeekOffset(w=>Math.max(w-1,minWeekOffset))}>◀ 前週</button>
@@ -1029,17 +1012,17 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
                 <button className={"btn btn-sm "+(isAdmin?"btn-amber":"btn-purple")} onClick={openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
                 <button className="btn btn-sm btn-ghost-amber" onClick={()=>{setShowPassChange(true);setPassErr("");setPassOk(false);setPassOld("");setPassNew("");setPassNew2("");}}>PW変更</button>
-                <button className="btn btn-sm btn-ghost-amber" onClick={handleLogout}>通常モード</button>
+                <button className="btn btn-sm btn-ghost-amber" onClick={handleLogout}>ログアウト</button>
                 </>:<button className="btn btn-sm btn-ghost" onClick={()=>{setShowLogin(true);setLoginErr("");setLoginInput("");}}>管理</button>}
                 <div style={{width:1,height:22,background:"rgba(108,99,255,0.18)",margin:"0 2px"}}/>
                 {currentUser?(<>
-                    <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:isAdmin?"rgba(245,158,11,0.08)":"rgba(108,99,255,0.07)",border:"1px solid "+(isAdmin?"rgba(245,158,11,0.25)":"rgba(108,99,255,0.15)")}}>{currentUser.email||currentUser.name}</span>
-                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>setShowNotifSetup(true)}>通知設定</button>
-                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={handleUserLogout}>退出</button>
-                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>{setShowDeleteAccount(true);setDeleteConfirm("");setDeleteErr("");}}>登録解除</button>
+                    <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:"rgba(108,99,255,0.07)",border:"1px solid rgba(108,99,255,0.15)"}}>{currentUser.email||currentUser.name}</span>
+                    <button className="btn btn-sm btn-ghost" title={notifyOwn?"自分の予定通知 ON":"自分の予定通知 OFF"} onClick={()=>toggleNotif("own")} style={{fontSize:15,padding:"4px 8px"}}>{notifyOwn?"通知ON":"通知OFF"}</button>
+                    <button className="btn btn-sm btn-ghost" title={notifyOthers?"他者の予定通知 ON":"他者の予定通知 OFF"} onClick={()=>toggleNotif("others")} style={{fontSize:12,padding:"4px 8px",opacity:notifyOthers?1:0.45}}>{notifyOthers?"他者通知ON":"他者通知OFF"}</button>
+                    <button className="btn btn-sm btn-ghost" onClick={handleUserLogout} style={{color:"#9ca3af",fontSize:11}}>退出</button>
                 </>):(
-                    <><button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>ログイン</button>
-                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegPass("");setRegEmail("");}}>新規登録</button></>
+                    <><button className="btn btn-sm btn-ghost" onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>ログイン</button>
+                    <button className="btn btn-sm btn-ghost" onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegPass("");setRegEmail("");}}>新規登録</button></>
                 )}
             </div>
             </div>
@@ -1140,38 +1123,36 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             </div>
         </div>}
 
-        {/* ── 通知設定モーダル ── */}
-        {showNotifSetup&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowNotifSetup(false);}}>
+        {/* ── 初回ログイン：通知設定モーダル ── */}
+        {showNotifSetup&&<div className="overlay">
             <div className="modal" style={{maxWidth:390}}>
-            <div className="drag-bar"/>
             <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:6}}>通知設定</h2>
-            <p style={{fontSize:11,color:"#9ca3af",marginBottom:16}}>受け取る通知をON/OFFで切り替えられます。</p>
+            <p style={{fontSize:12,color:"#6b7280",marginBottom:4}}>どの通知を受け取りますか？</p>
+            <p style={{fontSize:11,color:"#9ca3af",marginBottom:16}}>通知はメール（Gmail 等）で届きます。</p>
             <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:20}}>
                 {[
-                    {key:"own",   label:"自分の予定の時刻通知",desc:"予定の1時間前・開始時刻にメールが届きます"},
-                    {key:"others",label:"予定追加の通知",      desc:"誰かが予定を追加したときにメールが届きます"},
+                    {key:"own",   label:"自分の予定（1時間前・開始時刻）",desc:"自分の名前の予定が近づいたら通知が届きます"},
+                    {key:"others",label:"他の人が予定を追加したとき",    desc:"誰かが新しく予定を追加したときに通知が届きます"},
                 ].map(item=>{
                     const val=item.key==="own"?notifyOwn:notifyOthers;
                     const set2=item.key==="own"?setNotifyOwn:setNotifyOthers;
                     return(
                     <div key={item.key} onClick={()=>set2(v=>!v)}
-                        style={{display:"flex",alignItems:"center",gap:14,padding:"13px 14px",borderRadius:12,
-                        border:"1.5px solid "+(val?"#6c63ff":"rgba(108,99,255,0.15)"),
+                        style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 14px",borderRadius:12,
+                        border:"2px solid "+(val?"#6c63ff":"rgba(108,99,255,0.15)"),
                         background:val?"rgba(108,99,255,0.04)":"transparent",cursor:"pointer"}}>
-                        <div style={{width:42,height:24,borderRadius:12,background:val?"#6c63ff":"#d1d5db",position:"relative",flexShrink:0,transition:"background 0.2s"}}>
-                            <div style={{position:"absolute",top:3,left:val?20:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
+                        <div style={{width:22,height:22,borderRadius:6,background:val?"#6c63ff":"#e5e7eb",
+                            display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                            {val&&<span style={{color:"#fff",fontSize:14,fontWeight:900}}>✓</span>}
                         </div>
                         <div>
-                            <div style={{fontSize:13,fontWeight:700,color:"#2d2d3a"}}>{item.label}<span style={{fontSize:11,fontWeight:500,color:val?"#6c63ff":"#9ca3af",marginLeft:8}}>{val?"ON":"OFF"}</span></div>
+                            <div style={{fontSize:13,fontWeight:700,color:"#2d2d3a"}}>{item.label}</div>
                             <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{item.desc}</div>
                         </div>
                     </div>);
                 })}
             </div>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                <button className="btn btn-ghost" onClick={()=>setShowNotifSetup(false)}>閉じる</button>
-                <button className="btn btn-purple" onClick={()=>handleNotifSetup(notifyOwn,notifyOthers)}>保存</button>
-            </div>
+            <button className="btn btn-purple" style={{width:"100%"}} onClick={()=>handleNotifSetup(notifyOwn,notifyOthers)}>この設定で始める</button>
             </div>
         </div>}
 
@@ -1192,26 +1173,6 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <button className="btn btn-ghost" onClick={()=>setShowRegister(false)}>閉じる</button>
                 <button className="btn btn-purple" onClick={handleRegister}>登録する</button>
-            </div>
-            </div>
-        </div>}
-
-        {/* ── 登録解除確認モーダル ── */}
-        {showDeleteAccount&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowDeleteAccount(false);}}>
-            <div className="modal" style={{maxWidth:360}}>
-            <div className="drag-bar"/>
-            <h2 style={{fontSize:16,fontWeight:800,color:"#ef4444",marginBottom:4}}>登録解除</h2>
-            <p style={{fontSize:12,color:"#6b7280",marginBottom:14}}>アカウントを削除します。この操作は取り消せません。<br/>確認のためメールアドレスを入力してください。</p>
-            {deleteErr&&<div className="wbox-a" style={{marginBottom:10,fontSize:12}}>{deleteErr}</div>}
-            <div style={{marginBottom:14}}>
-                <label className="lbl">メールアドレス（確認）</label>
-                <input className="inp" type="email" placeholder={currentUser?.email} value={deleteConfirm}
-                    onChange={e=>{setDeleteConfirm(e.target.value);setDeleteErr("");}}
-                    onKeyDown={e=>e.key==="Enter"&&handleDeleteAccount()}/>
-            </div>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                <button className="btn btn-ghost" onClick={()=>setShowDeleteAccount(false)}>キャンセル</button>
-                <button className="btn" style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"8px 18px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}} onClick={handleDeleteAccount}>削除する</button>
             </div>
             </div>
         </div>}

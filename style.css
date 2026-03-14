@@ -194,8 +194,23 @@ select.inp option, select.inp-a option { background: white; color: #2d2d3a; }
 @keyframes bi    { from { opacity: 0; transform: scaleY(0.6);                   } to { opacity: 1; transform: scaleY(1);                } }
 .ba { animation: bi 0.25s cubic-bezier(.34, 1.56, .64, 1) forwards; transform-origin: top; }
 
-/* ── 操作ボタン行：PCは折り返し、スマホは横スクロール ── */
-.btn-row { flex-wrap: wrap; }
+/* ── 操作ボタン行：スマホで横スクロール ── */
+.btn-scroll-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* スクロールバーを非表示にしてスッキリ見せる */
+    scrollbar-width: none;
+}
+.btn-scroll-wrap::-webkit-scrollbar { display: none; }
+.btn-scroll-inner {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;        /* PC：折り返し */
+}
 @media (max-width: 767px) {
-    .btn-row { flex-wrap: nowrap; width: max-content; }
+    .btn-scroll-inner {
+        flex-wrap: nowrap;  /* スマホ：横スクロール */
+        width: max-content;
+    }
 }
