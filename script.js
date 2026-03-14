@@ -884,12 +884,12 @@ function App(){
             if(x._id !== id) return x;
             const updated = {...x, [key]:val, warn:"", forceOk:false};
             if(key === "startH"){
-                const newEnd = Math.min(+val+2, 20); // 終了を 開始+2h（上限20時）に設定
-                updated.endH = newEnd;
-            } else if(key === "endH"){
-                const newStart = Math.max(+val-2, 10); // 開始を 終了-2h（下限10時）に設定
-                updated.startH = newStart;
+                // 開始時刻を変えたとき：終了が開始以下になる場合のみ終了を 開始+2h に揃える
+                if(+val >= updated.endH){
+                    updated.endH = Math.min(+val+2, 20);
+                }
             }
+            // endH / endM を変えたとき：開始時刻はそのままにする
             return updated;
         }));
     }
