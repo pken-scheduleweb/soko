@@ -1027,17 +1027,17 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
                 <button className={"btn btn-sm "+(isAdmin?"btn-amber":"btn-purple")} onClick={openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
                 <button className="btn btn-sm btn-ghost-amber" onClick={()=>{setShowPassChange(true);setPassErr("");setPassOk(false);setPassOld("");setPassNew("");setPassNew2("");}}>PW変更</button>
-                <button className="btn btn-sm btn-ghost-amber" onClick={handleLogout}>ログアウト</button>
+                <button className="btn btn-sm btn-ghost-amber" onClick={handleLogout}>通常モード</button>
                 </>:<button className="btn btn-sm btn-ghost" onClick={()=>{setShowLogin(true);setLoginErr("");setLoginInput("");}}>管理</button>}
                 <div style={{width:1,height:22,background:"rgba(108,99,255,0.18)",margin:"0 2px"}}/>
                 {currentUser?(<>
-                    <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:"rgba(108,99,255,0.07)",border:"1px solid rgba(108,99,255,0.15)"}}>{currentUser.email||currentUser.name}</span>
-                    <button className="btn btn-sm btn-ghost" onClick={()=>setShowNotifSetup(true)}>通知設定</button>
-                    <button className="btn btn-sm btn-ghost" onClick={handleUserLogout}>退出</button>
-                    <button className="btn btn-sm btn-ghost" style={{color:"#ef4444"}} onClick={()=>{setShowDeleteAccount(true);setDeleteConfirm("");setDeleteErr("");}}>登録解除</button>
+                    <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:isAdmin?"rgba(245,158,11,0.08)":"rgba(108,99,255,0.07)",border:"1px solid "+(isAdmin?"rgba(245,158,11,0.25)":"rgba(108,99,255,0.15)")}}>{currentUser.email||currentUser.name}</span>
+                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>setShowNotifSetup(true)}>通知設定</button>
+                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={handleUserLogout}>退出</button>
+                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>{setShowDeleteAccount(true);setDeleteConfirm("");setDeleteErr("");}}>登録解除</button>
                 </>):(
-                    <><button className="btn btn-sm btn-ghost" onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>ログイン</button>
-                    <button className="btn btn-sm btn-ghost" onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegPass("");setRegEmail("");}}>新規登録</button></>
+                    <><button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>ログイン</button>
+                    <button className={"btn btn-sm "+(isAdmin?"btn-ghost-amber":"btn-ghost")} onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegPass("");setRegEmail("");}}>新規登録</button></>
                 )}
             </div>
             </div>
