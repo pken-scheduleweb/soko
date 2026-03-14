@@ -301,6 +301,9 @@ function App() {
     const [regEmail, setRegEmail]=useState("");
     const [regErr, setRegErr]=useState("");
     const [regOk, setRegOk]=useState(false);
+    const [showDeleteAccount, setShowDeleteAccount]=useState(false);
+    const [deleteConfirm, setDeleteConfirm]=useState("");
+    const [deleteErr, setDeleteErr]=useState("");
 
     // 通知設定
     const [notifyOwn, setNotifyOwn]=useState(true);
@@ -452,15 +455,16 @@ function App() {
         } catch(e){ console.warn("EmailJS送信エラー:",e); }
     }
 
-    // 他ユーザー全員（notifyOthers=true）にメール通知
+    // 他ユーザー全員（notifyOthers が明示的に false 以外）にメール通知
     async function notifyOtherUsers(addedBy, item) {
         const notifPrefsSnap = await get(ref(db, DB_NOTIF_PATH));
         const prefs = notifPrefsSnap.exists() ? notifPrefsSnap.val() : {};
         for(const [uid, udata] of Object.entries(users)){
             if(currentUser && uid===currentUser.uid) continue;
-            const pref=prefs[uid];
-            if(!pref||!pref.notifyOthers) continue;
             if(!udata.email) continue;
+            // 通知設定がない（未設定）場合はデフォルトで送信する
+            const pref=prefs[uid];
+            if(pref && pref.notifyOthers===false) continue;
             const subject=`[P研 倉庫] ${addedBy} さんが予定を追加しました`;
             const message=`${addedBy} さんが予定を追加しました。
 日時：${item.dateKey} ${DAYS_JA[item.dayIndex]}曜 ${fmtTime(item.startMin)}〜${fmtTime(item.endMin)}
@@ -477,7 +481,8 @@ function App() {
             const now=new Date();
             const tk=dateKey(now);
             const nm=now.getHours()*60+now.getMinutes();
-            const mine=schedules.filter(s=>s.name.trim().toLowerCase()===(currentUser.name||"").trim().toLowerCase()&&s.dateKey>=tk);
+            // 予定の「名前」欄とログインメールアドレスを照合する
+            const mine=schedules.filter(s=>s.dateKey>=tk);
             for(const s of mine){
                 const k1h=s.id+"_1h";
                 if(!notifiedSet.current.has(k1h)&&s.dateKey===tk&&nm>=s.startMin-60&&nm<s.startMin-55){
@@ -489,7 +494,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
                 const ks=s.id+"_start";
                 if(!notifiedSet.current.has(ks)&&s.dateKey===tk&&nm>=s.startMin&&nm<s.startMin+5){
                     notifiedSet.current.add(ks);
-                    await sendEmail(users[currentUser.name]?.email,"[P研 倉庫] 予定の時刻になりました",`予定の時刻になりました。
+                    await sendEmail(currentUser.email,"[P研 倉庫] 予定の時刻になりました",`予定の時刻になりました。
 ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endMin)}`);
                     addToast("📧 開始時刻の通知をメールで送信しました");
                 }
@@ -554,6 +559,23 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             setUsers(updated); setRegOk(true); setRegErr(""); setRegPass(""); setRegEmail("");
         } catch(e) {
             setRegErr("登録に失敗しました: " + e.message);
+        }
+    }
+
+    // アカウント削除
+    async function handleDeleteAccount() {
+        if(deleteConfirm !== currentUser.email){ setDeleteErr("メールアドレスが一致しません"); return; }
+        try {
+            // users と userNotifPrefs から自分のデータを削除
+            await set(ref(db, DB_USERS_PATH + "/" + currentUser.uid), null);
+            await set(ref(db, DB_NOTIF_PATH + "/" + currentUser.uid), null);
+            const updated = {...users};
+            delete updated[currentUser.uid];
+            setUsers(updated);
+            setShowDeleteAccount(false);
+            handleUserLogout();
+        } catch(e) {
+            setDeleteErr("削除に失敗しました: " + e.message);
         }
     }
 
@@ -1020,6 +1042,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
                     <button className="btn btn-sm btn-ghost" title={notifyOwn?"自分の予定通知 ON":"自分の予定通知 OFF"} onClick={()=>toggleNotif("own")} style={{fontSize:15,padding:"4px 8px"}}>{notifyOwn?"通知ON":"通知OFF"}</button>
                     <button className="btn btn-sm btn-ghost" title={notifyOthers?"他者の予定通知 ON":"他者の予定通知 OFF"} onClick={()=>toggleNotif("others")} style={{fontSize:12,padding:"4px 8px",opacity:notifyOthers?1:0.45}}>{notifyOthers?"他者通知ON":"他者通知OFF"}</button>
                     <button className="btn btn-sm btn-ghost" onClick={handleUserLogout} style={{color:"#9ca3af",fontSize:11}}>退出</button>
+                    <button className="btn btn-sm btn-ghost" onClick={()=>{setShowDeleteAccount(true);setDeleteConfirm("");setDeleteErr("");}} style={{color:"#ef4444",fontSize:11}}>登録解除</button>
                 </>):(
                     <><button className="btn btn-sm btn-ghost" onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>ログイン</button>
                     <button className="btn btn-sm btn-ghost" onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegPass("");setRegEmail("");}}>新規登録</button></>
@@ -1173,6 +1196,26 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <button className="btn btn-ghost" onClick={()=>setShowRegister(false)}>閉じる</button>
                 <button className="btn btn-purple" onClick={handleRegister}>登録する</button>
+            </div>
+            </div>
+        </div>}
+
+        {/* ── 登録解除確認モーダル ── */}
+        {showDeleteAccount&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowDeleteAccount(false);}}>
+            <div className="modal" style={{maxWidth:360}}>
+            <div className="drag-bar"/>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#ef4444",marginBottom:4}}>登録解除</h2>
+            <p style={{fontSize:12,color:"#6b7280",marginBottom:14}}>アカウントを削除します。この操作は取り消せません。<br/>確認のためメールアドレスを入力してください。</p>
+            {deleteErr&&<div className="wbox-a" style={{marginBottom:10,fontSize:12}}>{deleteErr}</div>}
+            <div style={{marginBottom:14}}>
+                <label className="lbl">メールアドレス（確認）</label>
+                <input className="inp" type="email" placeholder={currentUser?.email} value={deleteConfirm}
+                    onChange={e=>{setDeleteConfirm(e.target.value);setDeleteErr("");}}
+                    onKeyDown={e=>e.key==="Enter"&&handleDeleteAccount()}/>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button className="btn btn-ghost" onClick={()=>setShowDeleteAccount(false)}>キャンセル</button>
+                <button className="btn" style={{background:"#ef4444",color:"#fff",border:"none"}} onClick={handleDeleteAccount}>削除する</button>
             </div>
             </div>
         </div>}
