@@ -996,7 +996,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             </div>
 
             {/* 操作ボタン行：週ナビ（管理者のみ）・更新・追加・PW変更・ログアウト/管理 */}
-            <div className="btn-scroll-wrap"><div className="btn-scroll-inner">
+            <div className="btn-scroll-wrap" style={{display:"flex",gap:6,alignItems:"center"}}>
                 {isAdmin&&<>
                 {/* 管理者専用：週ナビゲーションボタン（前後1ヶ月＋予定がある週まで） */}
                 <button className="wkbtn" disabled={weekOffset<=minWeekOffset} onClick={()=>setWeekOffset(w=>Math.max(w-1,minWeekOffset))}>◀ 前週</button>
