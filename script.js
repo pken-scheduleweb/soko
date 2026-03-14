@@ -1223,7 +1223,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
                 {/* 閉じるボタン */}
                 <button onClick={()=>setShowHowto(false)} style={{position:"absolute",top:14,right:14,width:32,height:32,borderRadius:"50%",border:"none",background:"rgba(108,99,255,0.08)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#6c63ff",fontWeight:900,fontFamily:"inherit",lineHeight:1,flexShrink:0}}>×</button>
                 <h2 style={{fontSize:16,fontWeight:800,color:"#2d2d3a",marginBottom:16,paddingRight:32}}>使い方ガイド</h2>
-                <pre style={{whiteSpace:"pre-wrap",fontFamily:"'M PLUS Rounded 1c',sans-serif",fontSize:13,lineHeight:1.8,color:"#374151",overflowY:"auto",overflowX:"hidden",maxHeight:"65vh",margin:0,wordBreak:"break-word"}}>{howtoText||"読み込み中..."}</pre>
+                <pre style={{whiteSpace:"pre-wrap",fontFamily:"'M PLUS Rounded 1c',sans-serif",fontSize:13,lineHeight:1.8,color:"#374151",overflowY:"auto",overflowX:"auto",maxHeight:"65vh",margin:0}}>{howtoText||"読み込み中..."}</pre>
             </div>
         </div>}
 
