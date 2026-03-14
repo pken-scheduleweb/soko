@@ -301,6 +301,9 @@ function App() {
     const [regEmail, setRegEmail]=useState("");
     const [regErr, setRegErr]=useState("");
     const [regOk, setRegOk]=useState(false);
+    const [showDeleteAccount, setShowDeleteAccount]=useState(false);
+    const [deleteConfirm, setDeleteConfirm]=useState("");
+    const [deleteErr, setDeleteErr]=useState("");
 
     // 通知設定
     const [notifyOwn, setNotifyOwn]=useState(true);
@@ -533,6 +536,21 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
     }
 
     function handleUserLogout(){ setCurrentUser(null); notifiedSet.current.clear(); }
+
+    async function handleDeleteAccount() {
+        if(deleteConfirm !== currentUser.email){ setDeleteErr("メールアドレスが一致しません"); return; }
+        try {
+            await set(ref(db, DB_USERS_PATH + "/" + currentUser.uid), null);
+            await set(ref(db, DB_NOTIF_PATH + "/" + currentUser.uid), null);
+            const updated = {...users};
+            delete updated[currentUser.uid];
+            setUsers(updated);
+            setShowDeleteAccount(false);
+            handleUserLogout();
+        } catch(e) {
+            setDeleteErr("削除に失敗しました: " + e.message);
+        }
+    }
 
     async function handleRegister() {
         setRegErr("");setRegOk(false);
@@ -1016,6 +1034,7 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
                     <span style={{fontSize:12,fontWeight:700,color:"#2d2d3a",padding:"4px 9px",borderRadius:8,background:"rgba(108,99,255,0.07)",border:"1px solid rgba(108,99,255,0.15)"}}>{currentUser.email||currentUser.name}</span>
                     <button className="btn btn-sm btn-ghost" onClick={()=>setShowNotifSetup(true)}>通知設定</button>
                     <button className="btn btn-sm btn-ghost" onClick={handleUserLogout}>退出</button>
+                    <button className="btn btn-sm btn-ghost" style={{color:"#ef4444"}} onClick={()=>{setShowDeleteAccount(true);setDeleteConfirm("");setDeleteErr("");}}>登録解除</button>
                 </>):(
                     <><button className="btn btn-sm btn-ghost" onClick={()=>{setShowUserLogin(true);setUserLoginErr("");setUserLoginName("");setUserLoginPass("");}}>ログイン</button>
                     <button className="btn btn-sm btn-ghost" onClick={()=>{setShowRegister(true);setRegErr("");setRegOk(false);setRegPass("");setRegEmail("");}}>新規登録</button></>
@@ -1171,6 +1190,26 @@ ${s.dateKey} ${DAYS_JA[s.dayIndex]}曜 ${fmtTime(s.startMin)}〜${fmtTime(s.endM
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <button className="btn btn-ghost" onClick={()=>setShowRegister(false)}>閉じる</button>
                 <button className="btn btn-purple" onClick={handleRegister}>登録する</button>
+            </div>
+            </div>
+        </div>}
+
+        {/* ── 登録解除確認モーダル ── */}
+        {showDeleteAccount&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowDeleteAccount(false);}}>
+            <div className="modal" style={{maxWidth:360}}>
+            <div className="drag-bar"/>
+            <h2 style={{fontSize:16,fontWeight:800,color:"#ef4444",marginBottom:4}}>登録解除</h2>
+            <p style={{fontSize:12,color:"#6b7280",marginBottom:14}}>アカウントを削除します。この操作は取り消せません。<br/>確認のためメールアドレスを入力してください。</p>
+            {deleteErr&&<div className="wbox-a" style={{marginBottom:10,fontSize:12}}>{deleteErr}</div>}
+            <div style={{marginBottom:14}}>
+                <label className="lbl">メールアドレス（確認）</label>
+                <input className="inp" type="email" placeholder={currentUser?.email} value={deleteConfirm}
+                    onChange={e=>{setDeleteConfirm(e.target.value);setDeleteErr("");}}
+                    onKeyDown={e=>e.key==="Enter"&&handleDeleteAccount()}/>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button className="btn btn-ghost" onClick={()=>setShowDeleteAccount(false)}>キャンセル</button>
+                <button className="btn" style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"8px 18px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}} onClick={handleDeleteAccount}>削除する</button>
             </div>
             </div>
         </div>}
