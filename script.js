@@ -1312,18 +1312,18 @@ function App(){
                                 zIndex:0,
                                 overflow:"hidden",
                             }}>
-                                {/* 縦書き：vertical-rl で日本語・英数字を縦に流す */}
+                                {/* 縦書き：vertical-rl・絶対中央配置で右側が切れないようにする */}
                                 <div style = {{
+                                    position:"absolute",
+                                    top:"50%", left:"50%",
+                                    transform:"translate(-50%, -50%)",
                                     fontSize:14, fontWeight:800,
                                     color:txtCol,
-                                    textAlign:"center",
                                     writingMode:"vertical-rl",
                                     letterSpacing:"0.05em",
                                     lineHeight:1.2,
                                     maxHeight:"92%",
-                                    width:"92%",
                                     overflow:"hidden",
-                                    wordBreak:"break-all",
                                 }}>{events[dk].name}</div>
                             </div>
                             );
