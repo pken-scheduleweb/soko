@@ -871,7 +871,7 @@ function App(){
                 ctx.save();
                 ctx.rect(bx, top, bw, ht);
                 ctx.clip();
-                ctx.font = "800 16px " + FONT;
+                ctx.font = "800 23px " + FONT;
                 ctx.fillStyle = `rgba(${r2},${g2},${b2},0.70)`;
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
@@ -1351,10 +1351,10 @@ function App(){
                                 pointerEvents:"none",
                                 zIndex:0,
                             }}>
-                                {/* 縦書き：upright で数字縦向き、maxWidth で列幅内に収める */}
-                                {/* スマホ（600px未満）のみ marginRight で左に寄せる */}
+                                {/* 縦書き：uprightで数字縦向き maxWidthで列幅内に収める */}
+                                {/* スマホのみmarginRightで左に寄せる */}
                                 <div style = {{
-                                    fontSize:window.innerWidth < 600 ? 16 : 26,
+                                    fontSize:window.innerWidth < 600 ? 16 : 23,
                                     fontWeight:800,
                                     color:txtCol,
                                     writingMode:"vertical-rl",
