@@ -1312,6 +1312,7 @@ function App(){
                                 zIndex:0,
                             }}>
                                 {/* 縦書き：upright で数字縦向き、maxWidth で列幅内に収める */}
+                                {/* スマホ（600px未満）のみ marginRight で左に寄せる */}
                                 <div style = {{
                                     fontSize:16, fontWeight:800,
                                     color:txtCol,
@@ -1324,6 +1325,7 @@ function App(){
                                     textAlign:"center",
                                     overflow:"visible",
                                     flexShrink:0,
+                                    marginRight:window.innerWidth < 600 ? "6px" : "0px",
                                 }}>{events[dk].name}</div>
                             </div>
                             );
