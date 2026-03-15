@@ -847,6 +847,46 @@ function App(){
                 });
             });
 
+            // イベントブロック（10:00〜20:00を半透明で覆い、縦書きでイベント名を表示）
+            weekDates.forEach((dt, i) => {
+                const dk = dateKey(dt);
+                const ev = events[dk];
+                if (!ev) return;
+                const x   = TLEFT + i * COL_W;
+                const bx  = x + 2, bw = COL_W - 4;
+                const top = HEAD_H + pct2(10 * 60);
+                const ht  = pct2(20 * 60) - pct2(10 * 60);
+                const evCol = ev.color || "#6c63ff";
+                const r2 = parseInt(evCol.slice(1,3),16), g2 = parseInt(evCol.slice(3,5),16), b2 = parseInt(evCol.slice(5,7),16);
+                // 半透明背景
+                ctx.fillStyle = `rgba(${r2},${g2},${b2},0.10)`;
+                roundRect(ctx, bx, top, bw, ht, 8);
+                ctx.fill();
+                // 枠線
+                ctx.strokeStyle = `rgba(${r2},${g2},${b2},0.30)`;
+                ctx.lineWidth = 2;
+                roundRect(ctx, bx, top, bw, ht, 8);
+                ctx.stroke();
+                // 縦書きでイベント名を中央に描画
+                ctx.save();
+                ctx.rect(bx, top, bw, ht);
+                ctx.clip();
+                ctx.font = "800 16px " + FONT;
+                ctx.fillStyle = `rgba(${r2},${g2},${b2},0.70)`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                // Canvas は writingMode 非対応のため、1文字ずつ縦に並べる
+                const name = ev.name;
+                const charH = 20; // 1文字あたりの縦幅(px)
+                const totalH = name.length * charH;
+                const startY = (HEAD_H + pct2(10 * 60)) + (ht - totalH) / 2 + charH / 2;
+                const cx = bx + bw / 2;
+                name.split("").forEach((ch, ci) => {
+                    ctx.fillText(ch, cx, startY + ci * charH);
+                });
+                ctx.restore();
+            });
+
             // ファイル名
             const wd  = weekDates;
             const fn  = "schedule_" + wd[0].getFullYear() + "-" + (wd[0].getMonth() + 1) + "-" + wd[0].getDate() + "_" + wd[6].getFullYear() + "-" + (wd[6].getMonth() + 1) + "-" + wd[6].getDate() + ".png";
