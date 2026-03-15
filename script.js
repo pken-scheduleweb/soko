@@ -1292,7 +1292,7 @@ function App(){
                         {allH.map(h => <div key = {h} className = {mjH.includes(h)?"gl-mj":"gl-mn"} style = {{top:pct(h * 60) + "%", background:mjH.includes(h)?(isAdmin?"rgba(245,158,11,0.13)":"rgba(108,99,255,0.10)"):(isAdmin?"rgba(245,158,11,0.06)":"rgba(108,99,255,0.05)")}}/>)}
 
                         {/* イベントブロック：10:00〜20:00 全体を埋める半透明ブロック */}
-                        {events[dk] && (()=>{
+                        {events[dk] && (() => {
                             const evCol = events[dk].color || "#6c63ff";
                             // hex を rgba に変換（不透明度付き）
                             const r = parseInt(evCol.slice(1,3),16), g = parseInt(evCol.slice(3,5),16), b = parseInt(evCol.slice(5,7),16);
@@ -1314,7 +1314,7 @@ function App(){
                                 {/* 縦書き：upright で数字縦向き、maxWidth で列幅内に収める */}
                                 {/* スマホ（600px未満）のみ marginRight で左に寄せる */}
                                 <div style = {{
-                                    fontSize:window.innerWidth < 600 ? 16 : 20,
+                                    fontSize:window.innerWidth < 600 ? 16 : 26,
                                     fontWeight:800,
                                     color:txtCol,
                                     writingMode:"vertical-rl",
