@@ -25,7 +25,8 @@ const db  = getDatabase(app);
 const DB_SCH_PATH   = "schedules";
 const DB_PASS_PATH  = "adminPassword";
 const DB_USERS_PATH = "users";          // ユーザー { name: {password, email} }
-const DB_NOTIF_PATH = "userNotifPrefs"; // 通知設定 { notifyOwn, notifyOthers }
+const DB_NOTIF_PATH  = "userNotifPrefs"; // 通知設定 { notifyOwn, notifyOthers }
+const DB_EVENT_PATH  = "events";          // イベント設定 { dateKey: { name, blockBooking } }
 
 // EmailJSの接続設定
 const EMAILJS_SERVICE_ID  = "service_1ycm187";
@@ -283,6 +284,14 @@ function App(){
     const ctxRef = useRef(null);                 // メニュー DOM への参照 (外側クリック検知用)
     const captureRef = useRef(null);             // カレンダー部分への参照 (画像保存用)
     const [capturing, setCapturing] = useState(false);
+    // イベント設定関連
+    const [events, setEvents] = useState({});               // { dateKey: { name, blockBooking } }
+    const [showEventModal, setShowEventModal] = useState(false); // イベント設定モーダル
+    const [eventDateKey, setEventDateKey] = useState("");   // 設定対象の日付
+    const [eventName, setEventName] = useState("");         // イベント名入力値
+    const [eventBlock, setEventBlock] = useState(false);    // 予約ブロックON/OFF
+    const [eventSaving, setEventSaving] = useState(false);  // 保存中フラグ
+
     const [showHowto, setShowHowto] = useState(false);   // 使い方モーダル
     const [howtoText, setHowtoText] = useState("");         // howto.txt の内容
 
@@ -378,6 +387,9 @@ function App(){
         if (passSnap.exists() && passSnap.val()) setAdminPass(passSnap.val());
         const usersSnap = await get(ref(db, DB_USERS_PATH));
         if (usersSnap.exists()) setUsers(usersSnap.val());
+        // イベント設定を読み込む
+        const eventSnap = await get(ref(db, DB_EVENT_PATH));
+        if (eventSnap.exists()) setEvents(eventSnap.val()); else setEvents({});
         } catch (e) {
         console.error("Firebase read error:", e);
         setSchedules([]);
@@ -633,6 +645,39 @@ function App(){
         } catch(e) {
             setRegErr("登録に失敗しました: " + e.message);
         }
+    }
+
+    // イベント設定モーダルを開く（管理者専用）
+    function openEventModal(dk) {
+        const ev = events[dk] || {};
+        setEventDateKey(dk);
+        setEventName(ev.name || "");
+        setEventBlock(ev.blockBooking || false);
+        setShowEventModal(true);
+    }
+
+    // イベント設定を保存する
+    async function handleSaveEvent() {
+        setEventSaving(true);
+        const updated = { ...events };
+        if (eventName.trim()) {
+            updated[eventDateKey] = { name: eventName.trim(), blockBooking: eventBlock };
+        } else {
+            delete updated[eventDateKey]; // 名前が空なら削除
+        }
+        await set(ref(db, DB_EVENT_PATH), updated);
+        setEvents(updated);
+        setEventSaving(false);
+        setShowEventModal(false);
+    }
+
+    // イベントを削除する
+    async function handleDeleteEvent() {
+        const updated = { ...events };
+        delete updated[eventDateKey];
+        await set(ref(db, DB_EVENT_PATH), updated);
+        setEvents(updated);
+        setShowEventModal(false);
     }
 
     // カレンダーをCanvasに直接描画して画像として保存する
@@ -924,6 +969,18 @@ function App(){
             return;
         }
 
+        // 2-a. イベント予約ブロックチェック（管理者は除く）
+        if (!isAdmin) {
+            for (const row of rows) {
+                const dk = dateKey(weekDates[row.dayIndex]);
+                const ev = events[dk];
+                if (ev && ev.blockBooking) {
+                    setGlobalWarn(DAYS_JA[row.dayIndex] + "（" + formatDate(weekDates[row.dayIndex]) + "）はイベント「" + ev.name + "」のため予約できません");
+                    return;
+                }
+            }
+        }
+
         // 2. 各行を Firebase 保存用オブジェクトに変換
         const candidates = rows.map(row => {
         const s = row.startH * 60 + row.startM, e=row.endH * 60 + row.endM;
@@ -1161,6 +1218,7 @@ function App(){
                 {/* 予定追加フォームを開くボタン */}
                 <button className = {"btn btn-sm " + (isAdmin?"btn-amber":"btn-purple")} onClick = {openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
+                <button className = "btn btn-sm btn-ghost-amber" onClick = {() => openEventModal(dateKey(weekDates[0]))}>イベント設定</button>
                 <button className = "btn btn-sm btn-ghost-amber" onClick = {() => {setShowPassChange(true); setPassErr(""); setPassOk(false); setPassOld(""); etPassNew(""); setPassNew2("");}}>PW変更</button>
                 <button className = "btn btn-sm btn-ghost-amber" onClick = {handleLogout}>通常モード</button>
                 </>:<button className = "btn btn-sm btn-ghost" onClick = {() => {setShowLogin(true); setLoginErr(""); setLoginInput("");}}>管理</button>}
@@ -1195,6 +1253,15 @@ function App(){
                         <div style = {{fontSize:16, fontWeight:800, color:isT?(isAdmin?"#d97706":"#6c63ff"):isSat?"#3b82f6":isSun?"#ef4444":"#2d2d3a"}}>{DAYS_JA[i]}</div>
                         <div style = {{fontSize:10, color:"#b0b0c4", fontWeight:600, marginTop:1}}>{formatDate(dt)}</div>
                         {isT && <div style = {{marginTop:3}}><span className="today-b">TODAY</span></div>}
+                        {/* イベントバナー：イベントが設定されている日に表示 */}
+                        {events[dateKey(dt)] && <div style = {{marginTop:3, padding:"2px 4px", borderRadius:5, background: events[dateKey(dt)].blockBooking?"rgba(239,68,68,0.12)":"rgba(108,99,255,0.10)", border:"1px solid " + (events[dateKey(dt)].blockBooking?"rgba(239,68,68,0.30)":"rgba(108,99,255,0.22)")}}>
+                            <div style = {{fontSize:9, fontWeight:800, color:events[dateKey(dt)].blockBooking?"#dc2626":"#6c63ff", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:"100%"}}>
+                                {events[dateKey(dt)].name}
+                            </div>
+                            {events[dateKey(dt)].blockBooking && <div style = {{fontSize:8, color:"#ef4444", fontWeight:700}}>予約不可</div>}
+                        </div>}
+                        {/* 管理者：クリックしてイベント設定を開く */}
+                        {isAdmin && <div style = {{fontSize:8, color:"#d97706", fontWeight:600, marginTop:2, cursor:"pointer", opacity:0.7}} onClick = {e => {e.stopPropagation(); openEventModal(dateKey(dt));}}>⚙ イベント設定</div>}
                     </div>);
                     })}
                 </div>
@@ -1354,6 +1421,41 @@ function App(){
                 <button onClick = {() => setShowHowto(false)} style = {{position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: "50%", border: "none", background: "rgba(108,99,255,0.08)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#6c63ff", fontWeight: 900, fontFamily: "inherit", lineHeight: 1, flexShrink: 0}}>×</button>
                 <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 16, paddingRight: 32}}>使い方ガイド</h2>
                 <pre style = {{whiteSpace: "pre-wrap", fontFamily: "'M PLUS Rounded 1c',sans-serif", fontSize: 13, lineHeight: 1.8, color: "#374151", overflowY: "auto", overflowX: "auto", maxHeight: "65vh", margin: 0}}>{howtoText || "読み込み中..."}</pre>
+            </div>
+        </div>}
+
+        {/* ── イベント設定モーダル（管理者専用） ── */}
+        {showEventModal && <div className = "overlay" onClick = {e => {if(e.target === e.currentTarget) setShowEventModal(false);}}>
+            <div className = "modal" style = {{maxWidth:380}}>
+            <div className = "drag-bar"/>
+            <h2 style = {{fontSize:16, fontWeight:800, color:"#2d2d3a", marginBottom:4}}>イベント設定</h2>
+            <p style = {{fontSize:11, color:"#9ca3af", marginBottom:14}}>{eventDateKey} の日のイベントを設定します。</p>
+            <div style = {{display:"flex", flexDirection:"column", gap:12, marginBottom:16}}>
+                <div>
+                    <label className = "lbl">イベント名（空欄で削除）</label>
+                    <input className = "inp-a" placeholder = "例：P研定期発表会" value = {eventName}
+                        onChange = {e => setEventName(e.target.value)}
+                        onKeyDown = {e => e.key === "Enter" && handleSaveEvent()}
+                        autoFocus/>
+                </div>
+                <div onClick = {() => setEventBlock(v => !v)}
+                    style = {{display:"flex", alignItems:"center", gap:14, padding:"13px 14px", borderRadius:12,
+                    border:"1.5px solid " + (eventBlock?"#ef4444":"rgba(108,99,255,0.15)"),
+                    background:eventBlock?"rgba(239,68,68,0.04)":"transparent", cursor:"pointer"}}>
+                    <div style = {{width:42, height:24, borderRadius:12, background:eventBlock?"#ef4444":"#d1d5db", position:"relative", flexShrink:0, transition:"background 0.2s"}}>
+                        <div style = {{position:"absolute", top:3, left:eventBlock?20:3, width:18, height:18, borderRadius:"50%", background:"#fff", transition:"left 0.2s"}}/>
+                    </div>
+                    <div>
+                        <div style = {{fontSize:13, fontWeight:700, color:"#2d2d3a"}}>予約ブロック<span style = {{fontSize:11, fontWeight:500, color:eventBlock?"#ef4444":"#9ca3af", marginLeft:8}}>{eventBlock?"ON（予約不可）":"OFF（予約可能）"}</span></div>
+                        <div style = {{fontSize:11, color:"#9ca3af", marginTop:2}}>ONにすると一般ユーザーがその日に予定を追加できなくなります</div>
+                    </div>
+                </div>
+            </div>
+            <div style = {{display:"flex", gap:8, justifyContent:"flex-end"}}>
+                {events[eventDateKey] && <button className = "btn" style = {{background:"#fee2e2", color:"#dc2626", border:"none", borderRadius:9, padding:"7px 14px", fontWeight:700, cursor:"pointer", fontFamily:"inherit", fontSize:12}} onClick = {handleDeleteEvent}>削除</button>}
+                <button className = "btn btn-ghost" onClick = {() => setShowEventModal(false)}>キャンセル</button>
+                <button className = "btn btn-amber" onClick = {handleSaveEvent} disabled = {eventSaving}>{eventSaving?"保存中...":"保存"}</button>
+            </div>
             </div>
         </div>}
 
