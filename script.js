@@ -1258,15 +1258,9 @@ function App(){
                         <div style = {{fontSize:16, fontWeight:800, color:isT?(isAdmin?"#d97706":"#6c63ff"):isSat?"#3b82f6":isSun?"#ef4444":"#2d2d3a"}}>{DAYS_JA[i]}</div>
                         <div style = {{fontSize:10, color:"#b0b0c4", fontWeight:600, marginTop:1}}>{formatDate(dt)}</div>
                         {isT && <div style = {{marginTop:3}}><span className="today-b">TODAY</span></div>}
-                        {/* イベントバナー：イベントが設定されている日に表示 */}
-                        {events[dateKey(dt)] && <div style = {{marginTop:3, padding:"2px 4px", borderRadius:5, background: events[dateKey(dt)].blockBooking?"rgba(239,68,68,0.12)":"rgba(108,99,255,0.10)", border:"1px solid " + (events[dateKey(dt)].blockBooking?"rgba(239,68,68,0.30)":"rgba(108,99,255,0.22)")}}>
-                            <div style = {{fontSize:9, fontWeight:800, color:events[dateKey(dt)].blockBooking?"#dc2626":"#6c63ff", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:"100%"}}>
-                                {events[dateKey(dt)].name}
-                            </div>
-                            {events[dateKey(dt)].blockBooking && <div style = {{fontSize:8, color:"#ef4444", fontWeight:700}}>予約不可</div>}
-                        </div>}
-                        {/* 管理者：クリックしてイベント設定を開く */}
-                        {isAdmin && <div style = {{fontSize:8, color:"#d97706", fontWeight:600, marginTop:2, cursor:"pointer", opacity:0.7}} onClick = {e => {e.stopPropagation(); openEventModal(dateKey(dt));}}>⚙ イベント設定</div>}
+                        {/* 管理者：曜日ヘッダークリックでイベント設定を開く */}
+                        {isAdmin && events[dateKey(dt)] && <div style = {{fontSize:9, fontWeight:700, color:"#d97706", marginTop:2, cursor:"pointer", opacity:0.8, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}} onClick = {e => {e.stopPropagation(); openEventModal(dateKey(dt));}}>{events[dateKey(dt)].name}</div>}
+                        {isAdmin && !events[dateKey(dt)] && <div style = {{fontSize:8, color:"#d97706", marginTop:2, cursor:"pointer", opacity:0.45}} onClick = {e => {e.stopPropagation(); openEventModal(dateKey(dt));}}>＋ イベント</div>}
                     </div>);
                     })}
                 </div>
@@ -1294,6 +1288,27 @@ function App(){
 
                         {/* 時間グリッド線：偶数時間は太線（gl-mj）、奇数時間は細線（gl-mn） */}
                         {allH.map(h => <div key = {h} className = {mjH.includes(h)?"gl-mj":"gl-mn"} style = {{top:pct(h * 60) + "%", background:mjH.includes(h)?(isAdmin?"rgba(245,158,11,0.13)":"rgba(108,99,255,0.10)"):(isAdmin?"rgba(245,158,11,0.06)":"rgba(108,99,255,0.05)")}}/>)}
+
+                        {/* イベントブロック：10:00〜20:00 全体を埋める半透明ブロック */}
+                        {events[dk] && <div style = {{
+                            position:"absolute", left:2, right:2,
+                            top:pct(10 * 60) + "%",
+                            height:(pct(20 * 60) - pct(10 * 60)) + "%",
+                            background:"rgba(108,99,255,0.08)",
+                            border:"1.5px solid rgba(108,99,255,0.18)",
+                            borderRadius:8,
+                            display:"flex", alignItems:"center", justifyContent:"center",
+                            pointerEvents:"none",
+                            zIndex:0,
+                        }}>
+                            <div style = {{
+                                fontSize:13, fontWeight:800,
+                                color:"rgba(108,99,255,0.55)",
+                                textAlign:"center", padding:"0 4px",
+                                wordBreak:"break-all", lineHeight:1.4,
+                                writingMode:"vertical-rl",
+                            }}>{events[dk].name}</div>
+                        </div>}
 
                         {/* 予定ブロック：上位置・高さをpct()でパーセント指定 */}
                         {daySch.map(s => {
