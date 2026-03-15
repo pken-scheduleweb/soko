@@ -1314,7 +1314,8 @@ function App(){
                                 {/* 縦書き：upright で数字縦向き、maxWidth で列幅内に収める */}
                                 {/* スマホ（600px未満）のみ marginRight で左に寄せる */}
                                 <div style = {{
-                                    fontSize:16, fontWeight:800,
+                                    fontSize:window.innerWidth < 600 ? 16 : 20,
+                                    fontWeight:800,
                                     color:txtCol,
                                     writingMode:"vertical-rl",
                                     textOrientation:"upright",
@@ -1325,7 +1326,7 @@ function App(){
                                     textAlign:"center",
                                     overflow:"visible",
                                     flexShrink:0,
-                                    marginRight:window.innerWidth < 600 ? "6px" : "0px",
+                                    marginRight:window.innerWidth < 600 ? "14px" : "0px",
                                 }}>{events[dk].name}</div>
                             </div>
                             );
