@@ -41,6 +41,12 @@ const _EK = 0x5A;
 const _EP = [42, 49, 63, 52, 116, 59, 62, 55, 51, 52, 116, 107, 104, 105, 110];
 const DEFAULT_PASS = _EP.map(b => String.fromCharCode(b ^ _EK)).join("");
 
+// パスワードをSHA-256でハッシュ化する（ブラウザ標準のcrypto.subtle使用）
+async function sha256(text) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
 // 色パレット (18色) { 背景色, 文字色 }
 const PALETTE = [
     {bg:"#FF6B9D", text:"#fff"}, {bg:"#26C6DA", text:"#fff"}, {bg:"#42A5F5", text:"#fff"},
@@ -385,9 +391,34 @@ function App(){
             if (s.color) customColorMap.set(s.id, {bg:s.color, text:textColorForBg(s.color)});
         }
         setSchedules(filteredSch);
-        if (passSnap.exists() && passSnap.val()) setAdminPass(passSnap.val());
+        if (passSnap.exists() && passSnap.val()) {
+            const stored = passSnap.val();
+            // 平文パスワード（64文字未満）が保存されている場合はハッシュ化して上書きする
+            if (stored.length < 64) {
+                const hashed = await sha256(stored);
+                await set(ref(db, DB_PASS_PATH), hashed);
+                setAdminPass(hashed);
+            } else {
+                setAdminPass(stored);
+            }
+        }
         const usersSnap = await get(ref(db, DB_USERS_PATH));
-        if (usersSnap.exists()) setUsers(usersSnap.val());
+        // users のパスワードが平文の場合ハッシュ化して上書きする
+        if (usersSnap.exists()) {
+            const loadedUsers = usersSnap.val();
+            let needUpdate = false;
+            const migratedUsers = {};
+            for (const [uid, udata] of Object.entries(loadedUsers)) {
+                if (udata.password && udata.password.length < 64) {
+                    migratedUsers[uid] = {...udata, password: await sha256(udata.password)};
+                    needUpdate = true;
+                } else {
+                    migratedUsers[uid] = udata;
+                }
+            }
+            if (needUpdate) await set(ref(db, DB_USERS_PATH), migratedUsers);
+            setUsers(needUpdate ? migratedUsers : loadedUsers);
+        }
         // イベント設定を読み込む（ルール未設定でも他のデータに影響しないよう独立try-catchで囲む）
         try {
             const eventSnap = await get(ref(db, DB_EVENT_PATH));
@@ -427,8 +458,9 @@ function App(){
     }, [ctxMenu]);
 
     // 管理者ログイン処理
-    function handleLogin(){
-        if(loginInput === adminPass){
+    async function handleLogin(){
+        const hashed = await sha256(loginInput);
+        if(hashed === adminPass){
             setIsAdmin(true);
             setShowLogin(false);
             setLoginInput("");
@@ -446,7 +478,8 @@ function App(){
     async function handlePassChange(){
         setPassErr("");
         setPassOk(false);
-        if(passOld !== adminPass){
+        const hashedOld = await sha256(passOld);
+        if(hashedOld !== adminPass){
             setPassErr("現在のパスワードが違います");
             return;
         }
@@ -458,8 +491,9 @@ function App(){
             setPassErr("新しいパスワードが一致しません");
             return;
         }
-        setAdminPass(passNew);
-        await saveAdminPass(passNew);
+        const hashedNew = await sha256(passNew);
+        setAdminPass(hashedNew);
+        await saveAdminPass(hashedNew);
         setPassOk(true);
         setPassOld("");
         setPassNew("");
@@ -471,8 +505,9 @@ function App(){
         if(!window.confirm("初期パスワードに戻します。よろしいですか？")) return;
         setPassErr("");
         setPassOk(false);
-        setAdminPass(DEFAULT_PASS);
-        await saveAdminPass(DEFAULT_PASS);
+        const hashedDefault = await sha256(DEFAULT_PASS);
+        setAdminPass(hashedDefault);
+        await saveAdminPass(hashedDefault);
         setPassOk(true);
         setPassOld("");
         setPassNew("");
@@ -546,7 +581,7 @@ function App(){
         return () => clearInterval(timer);
     },[currentUser,notifyOwn,schedules]);
 
-    function handleUserLogin(){
+    async function handleUserLogin(){
         // メールアドレスでユーザーを検索
         const entry = Object.entries(users).find(([,u]) => u.email === userLoginName);
         if(!entry){
@@ -554,7 +589,8 @@ function App(){
             return;
         }
         const [uid, u] = entry;
-        if(u.password !== userLoginPass){
+        const hashedInput = await sha256(userLoginPass);
+        if(u.password !== hashedInput){
             setUserLoginErr("メールアドレスまたはパスワードが違います");
             return;
         }
@@ -640,7 +676,8 @@ function App(){
         setRegErr("登録中...");
         try {
             const uid = "u" + Date.now();
-            const newUser = {password:regPass, email};
+            const hashedPass = await sha256(regPass);
+            const newUser = {password:hashedPass, email};
             await set(ref(db, DB_USERS_PATH + "/" + uid), newUser);
             const updated = {...users, [uid]: newUser};
             setUsers(updated);
