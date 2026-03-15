@@ -1312,13 +1312,13 @@ function App(){
                                 zIndex:0,
                                 overflow:"hidden",
                             }}>
-                                {/* 縦書き：textOrientation:mixed で数字も縦向きに */}
+                                {/* 縦書き：textOrientation:upright で数字・英字も縦向きに統一 */}
                                 <div style = {{
                                     fontSize:18, fontWeight:800,
                                     color:txtCol,
                                     textAlign:"center",
                                     writingMode:"vertical-rl",
-                                    textOrientation:"mixed",
+                                    textOrientation:"upright",
                                     letterSpacing:"0.08em",
                                     lineHeight:1.3,
                                     maxHeight:"90%",
