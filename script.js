@@ -290,6 +290,7 @@ function App(){
     const [eventDateKey, setEventDateKey] = useState("");   // 設定対象の日付
     const [eventName, setEventName] = useState("");         // イベント名入力値
     const [eventBlock, setEventBlock] = useState(false);    // 予約ブロックON/OFF
+    const [eventColor, setEventColor] = useState("#6c63ff");  // イベント基調色
     const [eventSaving, setEventSaving] = useState(false);  // 保存中フラグ
 
     const [showHowto, setShowHowto] = useState(false);   // 使い方モーダル
@@ -658,6 +659,7 @@ function App(){
         setEventDateKey(dk);
         setEventName(ev.name || "");
         setEventBlock(ev.blockBooking || false);
+        setEventColor(ev.color || "#6c63ff");
         setShowEventModal(true);
     }
 
@@ -666,7 +668,7 @@ function App(){
         setEventSaving(true);
         const updated = { ...events };
         if (eventName.trim()) {
-            updated[eventDateKey] = { name: eventName.trim(), blockBooking: eventBlock };
+            updated[eventDateKey] = { name: eventName.trim(), blockBooking: eventBlock, color: eventColor };
         } else {
             delete updated[eventDateKey]; // 名前が空なら削除
         }
@@ -1290,25 +1292,41 @@ function App(){
                         {allH.map(h => <div key = {h} className = {mjH.includes(h)?"gl-mj":"gl-mn"} style = {{top:pct(h * 60) + "%", background:mjH.includes(h)?(isAdmin?"rgba(245,158,11,0.13)":"rgba(108,99,255,0.10)"):(isAdmin?"rgba(245,158,11,0.06)":"rgba(108,99,255,0.05)")}}/>)}
 
                         {/* イベントブロック：10:00〜20:00 全体を埋める半透明ブロック */}
-                        {events[dk] && <div style = {{
-                            position:"absolute", left:2, right:2,
-                            top:pct(10 * 60) + "%",
-                            height:(pct(20 * 60) - pct(10 * 60)) + "%",
-                            background:"rgba(108,99,255,0.08)",
-                            border:"1.5px solid rgba(108,99,255,0.18)",
-                            borderRadius:8,
-                            display:"flex", alignItems:"center", justifyContent:"center",
-                            pointerEvents:"none",
-                            zIndex:0,
-                        }}>
+                        {events[dk] && (()=>{
+                            const evCol = events[dk].color || "#6c63ff";
+                            // hex を rgba に変換（不透明度付き）
+                            const r = parseInt(evCol.slice(1,3),16), g = parseInt(evCol.slice(3,5),16), b = parseInt(evCol.slice(5,7),16);
+                            const bgCol  = `rgba(${r},${g},${b},0.10)`;
+                            const borCol = `rgba(${r},${g},${b},0.30)`;
+                            const txtCol = `rgba(${r},${g},${b},0.70)`;
+                            return(
                             <div style = {{
-                                fontSize:13, fontWeight:800,
-                                color:"rgba(108,99,255,0.55)",
-                                textAlign:"center", padding:"0 4px",
-                                wordBreak:"break-all", lineHeight:1.4,
-                                writingMode:"vertical-rl",
-                            }}>{events[dk].name}</div>
-                        </div>}
+                                position:"absolute", left:2, right:2,
+                                top:pct(10 * 60) + "%",
+                                height:(pct(20 * 60) - pct(10 * 60)) + "%",
+                                background:bgCol,
+                                border:"2px solid " + borCol,
+                                borderRadius:8,
+                                display:"flex", alignItems:"center", justifyContent:"center",
+                                pointerEvents:"none",
+                                zIndex:0,
+                                overflow:"hidden",
+                            }}>
+                                {/* 縦書き：textOrientation:mixed で数字も縦向きに */}
+                                <div style = {{
+                                    fontSize:18, fontWeight:800,
+                                    color:txtCol,
+                                    textAlign:"center",
+                                    writingMode:"vertical-rl",
+                                    textOrientation:"mixed",
+                                    letterSpacing:"0.08em",
+                                    lineHeight:1.3,
+                                    maxHeight:"90%",
+                                    overflow:"hidden",
+                                }}>{events[dk].name}</div>
+                            </div>
+                            );
+                        })()}
 
                         {/* 予定ブロック：上位置・高さをpct()でパーセント指定 */}
                         {daySch.map(s => {
@@ -1457,6 +1475,23 @@ function App(){
                         onChange = {e => setEventName(e.target.value)}
                         onKeyDown = {e => e.key === "Enter" && handleSaveEvent()}
                         autoFocus/>
+                </div>
+                <div>
+                    <label className = "lbl">基調色</label>
+                    <div style = {{display:"flex", alignItems:"center", gap:10}}>
+                        <input type = "color" value = {eventColor}
+                            onChange = {e => setEventColor(e.target.value)}
+                            style = {{width:36, height:30, border:"none", borderRadius:8, cursor:"pointer", padding:2, background:"none"}}/>
+                        <span style = {{fontSize:12, color:"#6b7280", fontFamily:"monospace"}}>{eventColor}</span>
+                        <button onClick = {() => setEventColor("#6c63ff")}
+                            style = {{background:"none", border:"1px solid #e5e7eb", cursor:"pointer", fontSize:11, color:"#9ca3af", fontWeight:700, padding:"2px 8px", borderRadius:6, fontFamily:"inherit"}}>
+                            リセット
+                        </button>
+                    </div>
+                    {/* プレビュー */}
+                    <div style = {{marginTop:8, padding:"6px 10px", borderRadius:8, background:eventColor + "1a", border:"1.5px solid " + eventColor + "4d", fontSize:12, fontWeight:700, color:eventColor + "b3", textAlign:"center"}}>
+                        {eventName || "イベント名のプレビュー"}
+                    </div>
                 </div>
                 <div onClick = {() => setEventBlock(v => !v)}
                     style = {{display:"flex", alignItems:"center", gap:14, padding:"13px 14px", borderRadius:12,
