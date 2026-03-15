@@ -1312,18 +1312,18 @@ function App(){
                                 zIndex:0,
                                 overflow:"hidden",
                             }}>
-                                {/* 縦書き：vertical-lr＋upright で左から右・全文字縦向き */}
+                                {/* 縦書き：vertical-rl で日本語・英数字を縦に流す */}
                                 <div style = {{
-                                    fontSize:18, fontWeight:800,
+                                    fontSize:14, fontWeight:800,
                                     color:txtCol,
                                     textAlign:"center",
-                                    writingMode:"vertical-lr",
-                                    textOrientation:"upright",
-                                    letterSpacing:"0.08em",
-                                    lineHeight:1.3,
-                                    maxHeight:"88%",
-                                    maxWidth:"88%",
+                                    writingMode:"vertical-rl",
+                                    letterSpacing:"0.05em",
+                                    lineHeight:1.2,
+                                    maxHeight:"92%",
+                                    width:"92%",
                                     overflow:"hidden",
+                                    wordBreak:"break-all",
                                 }}>{events[dk].name}</div>
                             </div>
                             );
