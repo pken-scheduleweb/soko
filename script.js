@@ -1312,16 +1312,17 @@ function App(){
                                 zIndex:0,
                                 overflow:"hidden",
                             }}>
-                                {/* 縦書き：textOrientation:upright で数字・英字も縦向きに統一 */}
+                                {/* 縦書き：vertical-lr＋upright で左から右・全文字縦向き */}
                                 <div style = {{
                                     fontSize:18, fontWeight:800,
                                     color:txtCol,
                                     textAlign:"center",
-                                    writingMode:"vertical-rl",
+                                    writingMode:"vertical-lr",
                                     textOrientation:"upright",
                                     letterSpacing:"0.08em",
                                     lineHeight:1.3,
-                                    maxHeight:"90%",
+                                    maxHeight:"88%",
+                                    maxWidth:"88%",
                                     overflow:"hidden",
                                 }}>{events[dk].name}</div>
                             </div>
