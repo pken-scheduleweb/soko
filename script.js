@@ -1310,20 +1310,20 @@ function App(){
                                 display:"flex", alignItems:"center", justifyContent:"center",
                                 pointerEvents:"none",
                                 zIndex:0,
-                                overflow:"hidden",
                             }}>
-                                {/* 縦書き：vertical-rl・絶対中央配置で右側が切れないようにする */}
+                                {/* 縦書き：upright で数字縦向き、maxWidth で列幅内に収める */}
                                 <div style = {{
-                                    position:"absolute",
-                                    top:"50%", left:"50%",
-                                    transform:"translate(-50%, -50%)",
-                                    fontSize:14, fontWeight:800,
+                                    fontSize:16, fontWeight:800,
                                     color:txtCol,
                                     writingMode:"vertical-rl",
-                                    letterSpacing:"0.05em",
-                                    lineHeight:1.2,
-                                    maxHeight:"92%",
-                                    overflow:"hidden",
+                                    textOrientation:"upright",
+                                    letterSpacing:"0.08em",
+                                    lineHeight:1.0,
+                                    maxHeight:"90%",
+                                    maxWidth:"56px",
+                                    textAlign:"center",
+                                    overflow:"visible",
+                                    flexShrink:0,
                                 }}>{events[dk].name}</div>
                             </div>
                             );
