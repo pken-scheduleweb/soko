@@ -387,9 +387,14 @@ function App(){
         if (passSnap.exists() && passSnap.val()) setAdminPass(passSnap.val());
         const usersSnap = await get(ref(db, DB_USERS_PATH));
         if (usersSnap.exists()) setUsers(usersSnap.val());
-        // イベント設定を読み込む
-        const eventSnap = await get(ref(db, DB_EVENT_PATH));
-        if (eventSnap.exists()) setEvents(eventSnap.val()); else setEvents({});
+        // イベント設定を読み込む（ルール未設定でも他のデータに影響しないよう独立try-catchで囲む）
+        try {
+            const eventSnap = await get(ref(db, DB_EVENT_PATH));
+            if (eventSnap.exists()) setEvents(eventSnap.val()); else setEvents({});
+        } catch(evErr) {
+            console.warn("events read error (Firebaseルールを確認してください):", evErr);
+            setEvents({});
+        }
         } catch (e) {
         console.error("Firebase read error:", e);
         setSchedules([]);
