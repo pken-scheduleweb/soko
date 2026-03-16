@@ -116,6 +116,10 @@ function formatDate(dt){
 function buildWeekDates(offsetWeeks){
     const base = new Date();
     base.setDate(base.getDate() + (offsetWeeks || 0) * 7);
+    // 月曜日18時以降は火曜日扱いにする
+    if (base.getDay() === 1 && base.getHours() >= 18) {
+        base.setDate(base.getDate() + 1);
+    }
     const day = base.getDay(); // 0 = 日, 1 = 月, ... , 6 = 土
     // 火曜日 (2)からの差を求めて週の先頭(火)の日付を計算
     const diff = day >= 2 ? (day - 2) : (day + 5);
@@ -290,6 +294,7 @@ function App(){
     const ctxRef = useRef(null);                 // メニュー DOM への参照 (外側クリック検知用)
     const captureRef = useRef(null);             // カレンダー部分への参照 (画像保存用)
     const [capturing, setCapturing] = useState(false);
+
     // イベント設定関連
     const [events, setEvents] = useState({});               // { dateKey: { name, blockBooking } }
     const [showEventModal, setShowEventModal] = useState(false); // イベント設定モーダル
@@ -300,14 +305,14 @@ function App(){
     const [eventSaving, setEventSaving] = useState(false);  // 保存中フラグ
 
     const [showHowto, setShowHowto] = useState(false);   // 使い方モーダル
-    const [howtoText, setHowtoText] = useState("");         // howto.txt の内容
+    const [howtoText, setHowtoText] = useState("");         // howto.txtの内容
 
-    // howto.txt をサイトルートから取得する
+    // howto.txtをサイトルートから取得する
     useEffect(() => {
         fetch("howto.txt")
             .then(r => r.text())
             .then(t => setHowtoText(t))
-            .catch(() => setHowtoText("howto.txtを読み込めませんでした。"));
+            .catch(() => setHowtoText("説明文を読み込めませんでした。"));
     },[]);
 
     // ユーザーログイン関連
@@ -338,14 +343,14 @@ function App(){
     const [editForm, setEditForm] = useState(null);       // 編集フォームの現在値
     const [editWarn, setEditWarn] = useState("");          // バリデーション警告メッセージ
     const [forceEdit, setForceEdit] = useState(false);    // 管理者の強制上書きフラグ
-    const [editPinInput, setEditPinInput] = useState(""); // PIN 確認フォームの入力値
-    const [editPinErr, setEditPinErr] = useState("");     // PIN 不一致エラーメッセージ
-    const [editPinOk, setEditPinOk] = useState(false);   // PIN 確認済みフラグ
+    const [editPinInput, setEditPinInput] = useState(""); // PIN確認フォームの入力値
+    const [editPinErr, setEditPinErr] = useState("");     // PIN不一致エラーメッセージ
+    const [editPinOk, setEditPinOk] = useState(false);   // PIN確認済みフラグ
 
-    // 削除 PIN 確認モーダル関連の状態
+    // 削除PIN確認モーダル関連の状態
     const [deleteTarget, setDeleteTarget] = useState(null);   // 削除対象の予定オブジェクト
-    const [deletePinInput, setDeletePinInput] = useState(""); // 削除 PIN 入力値
-    const [deletePinErr, setDeletePinErr] = useState("");     // 削除 PIN エラーメッセージ
+    const [deletePinInput, setDeletePinInput] = useState(""); // 削除PIN入力値
+    const [deletePinErr, setDeletePinErr] = useState("");     // 削除PINエラーメッセージ
 
     // 現在表示する週の日付配列
     const weekDates = buildWeekDates(isAdmin?weekOffset:0);
@@ -403,7 +408,7 @@ function App(){
             }
         }
         const usersSnap = await get(ref(db, DB_USERS_PATH));
-        // users のパスワードが平文の場合ハッシュ化して上書きする
+        // usersのパスワードが平文の場合ハッシュ化して上書きする
         if (usersSnap.exists()) {
             const loadedUsers = usersSnap.val();
             let needUpdate = false;
@@ -690,7 +695,7 @@ function App(){
         }
     }
 
-    // イベント設定モーダルを開く（管理者専用）
+    // イベント設定モーダルを開く
     function openEventModal(dk) {
         const ev = events[dk] || {};
         setEventDateKey(dk);
@@ -1016,7 +1021,7 @@ function App(){
                 // 開始時刻を変えたとき：終了が開始以下になる場合のみ終了を開始+2hに揃える
                 if(+val >= updated.endH){ updated.endH = Math.min(+val + 2, 20); }
             }
-            // endH / endM を変えたとき：開始時刻はそのまま（何もしない）
+            // endH / endMを変えたとき：開始時刻はそのまま
             return updated;
         }));
     }
@@ -1089,7 +1094,7 @@ function App(){
         if(hasOverlapErr){
             setRows(withWarn);
             if(!isAdmin) return; // 一般ユーザーは重複があれば保存不可
-            // 管理者：全行に forceOk が設定されていれば次のクリックで保存できる
+            // 管理者：全行にforceOkが設定されていれば次のクリックで保存可
             const allForce = withWarn.every(r => !r.warn || (r.warn && r.forceOk));
             if(!allForce) return;
         }
@@ -1179,7 +1184,7 @@ function App(){
         setEditPinOk(isAdmin || s.pin === null);
     }
 
-    // 編集用 PIN 確認処理：入力 PIN が正しければ編集フォームを表示する
+    // 編集用PIN確認処理：入力PINが正しければ編集フォームを表示する
     function handleEditPinSubmit(){
         if(editPinInput !== editTarget.pin){
             setEditPinErr("PINが違います");
