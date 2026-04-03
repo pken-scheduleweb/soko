@@ -367,7 +367,7 @@ function App(){
         const maxDate = new Date(maxKey);
         const diffMs = maxDate - todayTue;
         const diffWeeks = Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000));
-        return Math.min(diffWeeks + 1, 4); // 予定がある週の翌週まで、ただし+4週が上限
+        return Math.max(diffWeeks + 1, 4); // 予定がある週の翌週まで（上限なし）
     })();
 
     // firebaseからスケジュール一覧と管理者パスワードを読み込む
@@ -1557,7 +1557,7 @@ function App(){
             <div style = {{display:"flex", flexDirection:"column", gap:12, marginBottom:16}}>
                 <div>
                     <label className = "lbl">イベント名（空欄で削除）</label>
-                    <input className = "inp-a" placeholder = "例：P研定期発表会" value = {eventName}
+                    <input className = "inp-a" value = {eventName}
                         onChange = {e => setEventName(e.target.value)}
                         onKeyDown = {e => e.key === "Enter" && handleSaveEvent()}
                         autoFocus/>
