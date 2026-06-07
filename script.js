@@ -995,11 +995,14 @@ function App(){
     }
 
     // 予定追加フォームを開く：フォーム表示状態をリセットして1行目を初期化
-    function openAdd(){
+    // overrides: { dayIndex, startH, endH } を渡すと初期値を上書きできる
+    function openAdd(overrides){
+        const base = newRow(weekDates, isAdmin);
+        const row = overrides ? {...base, ...overrides} : base;
         setShowForm(true);
         setGlobalWarn("");
         setBulkPin("");
-        setRows([newRow(weekDates, isAdmin)]);
+        setRows([row]);
     }
 
     // 追加フォームに新しい行を追加する
@@ -1368,7 +1371,21 @@ function App(){
                         const dk = dateKey(dt);
                         const daySch = schedules.filter(s => s.dateKey === dk); // その日の予定一覧
                         const isT = dk === dateKey(today);
-                        return(<div key={dayIdx} className = "day-col" style = {{height:calH, background:isT?(isAdmin?"rgba(245,158,11,0.022)":"rgba(108,99,255,0.020)"):"transparent", borderLeft:isAdmin?"1px solid rgba(245,158,11,0.08)":"1px solid rgba(108,99,255,0.07)"}}>
+                        return(<div key={dayIdx} className = "day-col" style = {{height:calH, background:isT?(isAdmin?"rgba(245,158,11,0.022)":"rgba(108,99,255,0.020)"):"transparent", borderLeft:isAdmin?"1px solid rgba(245,158,11,0.08)":"1px solid rgba(108,99,255,0.07)", cursor:"pointer"}}
+                        onClick = {e => {
+                            // 予定ブロック自体のクリックは除外（バブリング元がblkクラスなら無視）
+                            if(e.target.closest(".blk")) return;
+                            // クリック位置のY座標からカレンダー内の相対割合を計算
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const relY = (e.clientY - rect.top) / rect.height; // 0.0〜1.0
+                            // 割合から分数に変換（VS〜VEの範囲）
+                            const clickedMin = VS + relY * VT;
+                            // 2時間スロット（偶数時間開始）に丸める
+                            const slotH = Math.floor(clickedMin / 120) * 2; // 偶数時間
+                            const startH = Math.max(vsH, Math.min(slotH, veH - 2));
+                            const endH   = Math.min(startH + 2, veH);
+                            openAdd({dayIndex: dayIdx, startH, endH});
+                        }}>
 
                         {/* 時間グリッド線：偶数時間は太線（gl-mj）、奇数時間は細線（gl-mn） */}
                         {allH.map(h => <div key = {h} className = {mjH.includes(h)?"gl-mj":"gl-mn"} style = {{top:pct(h * 60) + "%", background:mjH.includes(h)?(isAdmin?"rgba(245,158,11,0.13)":"rgba(108,99,255,0.10)"):(isAdmin?"rgba(245,158,11,0.06)":"rgba(108,99,255,0.05)")}}/>)}
@@ -1754,7 +1771,7 @@ function App(){
                     <div>
                     <label className = "lbl">終了</label>
                     <div style = {{display: "flex", gap: 4}}>
-                        <select className = {isAdmin ? "inp-a" : "inp"} value = {editForm.endH} onChange = {e => {const v = +e.target.value; setEditForm(f => ({...f, endH: v, startH: Math.max(v - 2, 10)})); setEditWarn(""); setForceEdit(false);}}>
+                        <select className = {isAdmin ? "inp-a" : "inp"} value = {editForm.endH} onChange = {e => {const v = +e.target.value; setEditForm(f => ({...f, endH: v})); setEditWarn(""); setForceEdit(false);}}>
                         {hourRange.map(h => <option key = {h} value = {h}>{h}時</option>)}
                         </select>
                         <select className = {isAdmin ? "inp-a" : "inp"} value = {editForm.endM} onChange = {e => {setEditForm(f => ({...f, endM: +e.target.value})); setEditWarn(""); setForceEdit(false);}}>
