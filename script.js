@@ -317,6 +317,8 @@ function App(){
     const [loginInput, setLoginInput] = useState("");         // ログインフォームの入力値
     const [loginErr, setLoginErr] = useState("");             // ログインエラーメッセージ
     const [weekOffset, setWeekOffset] = useState(0);          // 週ナビのオフセット
+    // adminPassHash: ログイン成功時のSHA-256ハッシュ値（Gemini APIキー暗号化の鍵として使用）
+    const adminPassHashRef = useRef("");
 
     // パスワード変更モーダル関連の状態
     const [showPassChange, setShowPassChange] = useState(false);
@@ -502,15 +504,12 @@ function App(){
         // 復号には管理者パスワードが必要なため、管理者ログイン後に再度呼ぶ必要がある
         try {
             const geminiSnap = await get(ref(db, DB_GEMINI_PATH));
-            if (geminiSnap.exists()) {
-                // 現在有効なadminPassを使って復号を試みる
-                // passSnapが取得済みの場合はその値、未取得ならDEFAULT_PASSを使う
-                const secretForDecrypt = passSnap.exists() && passSnap.val() ? passSnap.val() : DEFAULT_PASS;
+            if (geminiSnap.exists() && adminPassHashRef.current) {
+                // adminPassHashRef に値がある（＝ログイン済み）場合のみ復号を試みる
                 try {
-                    const decrypted = await decryptApiKey(geminiSnap.val(), secretForDecrypt);
+                    const decrypted = await decryptApiKey(geminiSnap.val(), adminPassHashRef.current);
                     setGeminiApiKey(decrypted);
                 } catch {
-                    // 復号失敗は無視（パスワード変更後など）
                     console.warn("Gemini APIキーの復号に失敗しました");
                 }
             }
@@ -555,6 +554,8 @@ function App(){
             setShowLogin(false);
             setLoginInput("");
             setLoginErr("");
+            // ログイン成功時にハッシュ値をrefに保存する（Gemini APIキー暗号化鍵として使用）
+            adminPassHashRef.current = hashed;
             // ログイン成功時にFirebaseからGemini APIキーを復号して取得する
             // 暗号化の秘密鍵にはadminPassハッシュ値を使っているため、ログイン後でないと復号できない
             try {
@@ -571,16 +572,20 @@ function App(){
     }
 
     // Gemini APIキーをAES-GCMで暗号化してFirebaseに保存する
-    // adminPassハッシュ値を暗号鍵の元にする（管理者のみ保存・復号可能）
+    // adminPassHashRef.current（ログイン時のSHA-256ハッシュ）を暗号鍵の元にする
     async function saveGeminiApiKey(rawKey) {
         setGeminiKeySaving(true);
         try {
-            const encrypted = await encryptApiKey(rawKey, adminPass);
+            // adminPassHashRef に値がない場合（初回ログイン前など）はエラーにする
+            const secret = adminPassHashRef.current;
+            if (!secret) throw new Error("管理者ログインが必要です");
+            const encrypted = await encryptApiKey(rawKey, secret);
             await set(ref(db, DB_GEMINI_PATH), encrypted);
             setGeminiApiKey(rawKey); // 復号済みキーをメモリに保持
             setGeminiKeyInput("");
         } catch(e) {
             console.error("Gemini APIキーの保存に失敗:", e);
+            setImgError("APIキーの保存に失敗しました：" + e.message);
         }
         setGeminiKeySaving(false);
     }
@@ -2102,7 +2107,7 @@ function App(){
             <div className = "modal" style = {{maxWidth: 480}}>
                 <div className = "drag-bar"/>
                 {/* モーダルタイトル */}
-                <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 4}}>📷 画像から予定を読み取る</h2>
+                <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 4}}>画像から予定を読み取る</h2>
                 <p style = {{fontSize: 11, color: "#9ca3af", marginBottom: 14}}>黒板などの手書き予定表の画像をアップロードすると、AIが名前・曜日・時間帯を自動で読み取ります。確認後に予定追加フォームに展開されます。</p>
 
                 {/* 画像選択エリア：ファイル入力とプレビューを表示する */}
@@ -2153,7 +2158,7 @@ function App(){
                 {/* 処理中インジケーター */}
                 {imgProcessing && (
                     <div style = {{marginBottom: 12, padding: "10px 13px", borderRadius: 10, background: "rgba(245,158,11,0.06)", border: "1.5px solid rgba(245,158,11,0.18)", fontSize: 13, fontWeight: 600, color: "#b45309"}}>
-                        🔍 AIが画像を解析中です…しばらくお待ちください
+                        AIが画像を解析中です…しばらくお待ちください
                     </div>
                 )}
 
