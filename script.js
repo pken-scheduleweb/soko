@@ -27,7 +27,6 @@ const DB_PASS_PATH  = "adminPassword";
 const DB_USERS_PATH = "users";          // ユーザー { name: {password, email} }
 const DB_NOTIF_PATH  = "userNotifPrefs"; // 通知設定 { notifyOwn, notifyOthers }
 const DB_EVENT_PATH  = "events";          // イベント設定 { dateKey: { name, blockBooking } }
-const DB_GEMINI_PATH = "geminiApiKey";    // Gemini APIキー（AES-GCM暗号化済み）
 
 // EmailJSの接続設定
 const EMAILJS_SERVICE_ID  = "service_1ycm187";
@@ -47,52 +46,6 @@ async function sha256(text) {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
     return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
 }
-
-// ── Gemini APIキー暗号化ユーティリティ（AES-GCM / Web Crypto API）──────────
-// 暗号化の鍵はFirebaseプロジェクトIDとadminPasswordの組み合わせから派生させる
-// これにより、管理者パスワードを知らないと復号できない構造になる
-
-// 文字列から AES-GCM 鍵を派生させる（PBKDF2使用）
-async function deriveKey(secret) {
-    const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey(
-        "raw", enc.encode(secret), "PBKDF2", false, ["deriveKey"]
-    );
-    return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt: enc.encode("pken-gemini-salt"), iterations: 100000, hash: "SHA-256" },
-        keyMaterial,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-    );
-}
-
-// APIキーを暗号化してBase64文字列で返す（IV + 暗号文を結合）
-async function encryptApiKey(apiKey, secret) {
-    const key = await deriveKey(secret);
-    const iv  = crypto.getRandomValues(new Uint8Array(12)); // 96bit IV
-    const enc = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        key,
-        new TextEncoder().encode(apiKey)
-    );
-    // IV(12byte) + 暗号文を結合してBase64にエンコードする
-    const combined = new Uint8Array(iv.byteLength + enc.byteLength);
-    combined.set(iv, 0);
-    combined.set(new Uint8Array(enc), iv.byteLength);
-    return btoa(String.fromCharCode(...combined));
-}
-
-// Base64文字列を復号してAPIキー文字列を返す
-async function decryptApiKey(b64, secret) {
-    const combined = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const iv  = combined.slice(0, 12);
-    const enc = combined.slice(12);
-    const key = await deriveKey(secret);
-    const dec = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, enc);
-    return new TextDecoder().decode(dec);
-}
-// ─────────────────────────────────────────────────────────────────────────────
 
 // 色パレット (18色) { 背景色, 文字色 }
 const PALETTE = [
@@ -317,8 +270,6 @@ function App(){
     const [loginInput, setLoginInput] = useState("");         // ログインフォームの入力値
     const [loginErr, setLoginErr] = useState("");             // ログインエラーメッセージ
     const [weekOffset, setWeekOffset] = useState(0);          // 週ナビのオフセット
-    // adminPassHash: ログイン成功時のSHA-256ハッシュ値（Gemini APIキー暗号化の鍵として使用）
-    const adminPassHashRef = useRef("");
 
     // パスワード変更モーダル関連の状態
     const [showPassChange, setShowPassChange] = useState(false);
@@ -394,16 +345,13 @@ function App(){
     const [imgFile, setImgFile] = useState(null);
     // imgPreview: プレビュー表示用のDataURL
     const [imgPreview, setImgPreview] = useState(null);
-    // imgProcessing: Gemini APIでの解析中フラグ
+    // imgProcessing: Claude APIでの解析中フラグ
     const [imgProcessing, setImgProcessing] = useState(false);
     // imgError: 解析エラーメッセージ
     const [imgError, setImgError] = useState("");
-    // geminiApiKey: 復号済みのGemini APIキー（メモリ上のみ保持）
-    const [geminiApiKey, setGeminiApiKey] = useState("");
-    // geminiKeyInput: APIキー入力フォームの一時入力値
-    const [geminiKeyInput, setGeminiKeyInput] = useState("");
-    // geminiKeySaving: APIキー保存中フラグ
-    const [geminiKeySaving, setGeminiKeySaving] = useState(false);
+    // imgApiKey: Gemini APIキー（コード内に直接設定）
+    // aistudio.google.com で無料発行できる
+    const GEMINI_API_KEY = "AQ.Ab8RN6INALHlgz_nGNAcZDIp7Qkgf-mhE2P_bZoGgsMViRpIig";
     // ────────────────────────────────────────────────────────────────────────
 
     // 編集モーダル関連の状態
@@ -500,22 +448,6 @@ function App(){
             console.warn("events read error (Firebaseルールを確認してください):", evErr);
             setEvents({});
         }
-        // Gemini APIキー（暗号化済み）をFirebaseから読み込んで復号する
-        // 復号には管理者パスワードが必要なため、管理者ログイン後に再度呼ぶ必要がある
-        try {
-            const geminiSnap = await get(ref(db, DB_GEMINI_PATH));
-            if (geminiSnap.exists() && adminPassHashRef.current) {
-                // adminPassHashRef に値がある（＝ログイン済み）場合のみ復号を試みる
-                try {
-                    const decrypted = await decryptApiKey(geminiSnap.val(), adminPassHashRef.current);
-                    setGeminiApiKey(decrypted);
-                } catch {
-                    console.warn("Gemini APIキーの復号に失敗しました");
-                }
-            }
-        } catch(gErr) {
-            console.warn("Gemini APIキー読み込みエラー:", gErr);
-        }
         } catch (e) {
         console.error("Firebase read error:", e);
         setSchedules([]);
@@ -554,40 +486,8 @@ function App(){
             setShowLogin(false);
             setLoginInput("");
             setLoginErr("");
-            // ログイン成功時にハッシュ値をrefに保存する（Gemini APIキー暗号化鍵として使用）
-            adminPassHashRef.current = hashed;
-            // ログイン成功時にFirebaseからGemini APIキーを復号して取得する
-            // 暗号化の秘密鍵にはadminPassハッシュ値を使っているため、ログイン後でないと復号できない
-            try {
-                const geminiSnap = await get(ref(db, DB_GEMINI_PATH));
-                if (geminiSnap.exists()) {
-                    const decrypted = await decryptApiKey(geminiSnap.val(), hashed);
-                    setGeminiApiKey(decrypted);
-                }
-            } catch {
-                console.warn("Gemini APIキーの復号に失敗しました（ログイン時）");
-            }
         }
         else setLoginErr("パスワードが違います");
-    }
-
-    // Gemini APIキーをAES-GCMで暗号化してFirebaseに保存する
-    // adminPassHashRef.current（ログイン時のSHA-256ハッシュ）を暗号鍵の元にする
-    async function saveGeminiApiKey(rawKey) {
-        setGeminiKeySaving(true);
-        try {
-            // adminPassHashRef に値がない場合（初回ログイン前など）はエラーにする
-            const secret = adminPassHashRef.current;
-            if (!secret) throw new Error("管理者ログインが必要です");
-            const encrypted = await encryptApiKey(rawKey, secret);
-            await set(ref(db, DB_GEMINI_PATH), encrypted);
-            setGeminiApiKey(rawKey); // 復号済みキーをメモリに保持
-            setGeminiKeyInput("");
-        } catch(e) {
-            console.error("Gemini APIキーの保存に失敗:", e);
-            setImgError("APIキーの保存に失敗しました：" + e.message);
-        }
-        setGeminiKeySaving(false);
     }
 
     // 管理者ログアウト
@@ -1141,11 +1041,6 @@ function App(){
             setImgError("画像を選択してください");
             return;
         }
-        // Gemini APIキーが未設定の場合はエラーを表示する
-        if (!geminiApiKey) {
-            setImgError("Gemini APIキーが設定されていません。下のフォームから登録してください。");
-            return;
-        }
         setImgProcessing(true);
         setImgError("");
         try {
@@ -1176,7 +1071,7 @@ function App(){
 
             // Gemini API（gemini-1.5-flash）に画像とプロンプトを送信する
             // gemini-1.5-flash は無料枠で画像認識に対応したモデル
-            const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
+            const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY;
             const response = await fetch(geminiUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -2107,7 +2002,7 @@ function App(){
             <div className = "modal" style = {{maxWidth: 480}}>
                 <div className = "drag-bar"/>
                 {/* モーダルタイトル */}
-                <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 4}}>画像から予定を読み取る</h2>
+                <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 4}}>📷 画像から予定を読み取る</h2>
                 <p style = {{fontSize: 11, color: "#9ca3af", marginBottom: 14}}>黒板などの手書き予定表の画像をアップロードすると、AIが名前・曜日・時間帯を自動で読み取ります。確認後に予定追加フォームに展開されます。</p>
 
                 {/* 画像選択エリア：ファイル入力とプレビューを表示する */}
@@ -2128,37 +2023,10 @@ function App(){
                 {/* エラーメッセージ表示 */}
                 {imgError && <div className = "wbox-a" style = {{marginBottom: 12}}>{imgError}</div>}
 
-                {/* Gemini APIキー設定欄：未設定または変更したい場合に入力する */}
-                <div style = {{marginBottom: 14, padding: "11px 13px", borderRadius: 11, background: "rgba(245,158,11,0.04)", border: "1.5px dashed rgba(245,158,11,0.28)"}}>
-                    <div style = {{fontSize: 11, fontWeight: 800, color: "#b45309", marginBottom: 6, letterSpacing: "0.5px", textTransform: "uppercase"}}>
-                        Gemini APIキー
-                        {/* 登録済みかどうかをバッジで表示する */}
-                        {geminiApiKey
-                            ? <span style = {{marginLeft: 8, background: "rgba(16,185,129,0.12)", color: "#059669", borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700}}>登録済み</span>
-                            : <span style = {{marginLeft: 8, background: "rgba(239,68,68,0.10)", color: "#dc2626", borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700}}>未登録</span>
-                        }
-                    </div>
-                    <div style = {{display: "flex", gap: 7}}>
-                        {/* APIキー入力フィールド（passwordタイプで伏字表示） */}
-                        <input className = "inp-a" type = "password" value = {geminiKeyInput}
-                            onChange = {e => setGeminiKeyInput(e.target.value)}
-                            placeholder = {geminiApiKey ? "変更する場合のみ入力" : "AIzaSy..."}
-                            style = {{flex: 1, fontFamily: "monospace", fontSize: 12}}/>
-                        {/* 保存ボタン：入力がある場合のみ有効 */}
-                        <button className = "btn btn-sm btn-amber" onClick = {() => saveGeminiApiKey(geminiKeyInput.trim())}
-                            disabled = {!geminiKeyInput.trim() || geminiKeySaving}>
-                            {geminiKeySaving ? "保存中…" : "保存"}
-                        </button>
-                    </div>
-                    <div style = {{fontSize: 11, color: "#92400e", marginTop: 5}}>
-                        aistudio.google.com で無料発行できます。AES-GCM暗号化してFirebaseに保存されます。
-                    </div>
-                </div>
-
                 {/* 処理中インジケーター */}
                 {imgProcessing && (
                     <div style = {{marginBottom: 12, padding: "10px 13px", borderRadius: 10, background: "rgba(245,158,11,0.06)", border: "1.5px solid rgba(245,158,11,0.18)", fontSize: 13, fontWeight: 600, color: "#b45309"}}>
-                        AIが画像を解析中です…しばらくお待ちください
+                        🔍 AIが画像を解析中です…しばらくお待ちください
                     </div>
                 )}
 
