@@ -1108,9 +1108,9 @@ function App(){
 セル内に複数の名前がある場合は別々のエントリとして返してください。
 名前はひらがなやカタカナ、漢字などそのまま読み取ってください。`;
 
-            // Gemini API（gemini-2.0-flash）に画像とプロンプトを送信する
-            // gemini-2.0-flash は無料枠で画像認識に対応した現行モデル
-            const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + geminiApiKey;
+            // Gemini API（gemini-2.0-flash-lite）に画像とプロンプトを送信する
+            // gemini-2.0-flash-lite は無料枠で画像認識に対応した軽量モデル
+            const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=" + geminiApiKey;
             const response = await fetch(geminiUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
