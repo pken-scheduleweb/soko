@@ -27,7 +27,6 @@ const DB_PASS_PATH  = "adminPassword";
 const DB_USERS_PATH = "users";          // ユーザー { name: {password, email} }
 const DB_NOTIF_PATH  = "userNotifPrefs"; // 通知設定 { notifyOwn, notifyOthers }
 const DB_EVENT_PATH  = "events";          // イベント設定 { dateKey: { name, blockBooking } }
-const DB_GEMINI_PATH = "geminiApiKey";    // Gemini APIキー（AES-GCM暗号化済み）
 
 // EmailJSの接続設定
 const EMAILJS_SERVICE_ID  = "service_1ycm187";
@@ -339,25 +338,14 @@ function App(){
     const [showNotifSetup, setShowNotifSetup] = useState(false);
     const [toastList, setToastList] = useState([]);
 
-    // ── 画像読み取り予定追加機能（管理者専用）の状態 ──────────────────────
-    // showImgImport: 画像インポートモーダルの表示フラグ
-    const [showImgImport, setShowImgImport] = useState(false);
-    // imgFile: アップロードされた画像ファイルオブジェクト
-    const [imgFile, setImgFile] = useState(null);
-    // imgPreview: プレビュー表示用のDataURL
-    const [imgPreview, setImgPreview] = useState(null);
-    // imgProcessing: Gemini APIでの解析中フラグ
-    const [imgProcessing, setImgProcessing] = useState(false);
-    // imgError: 解析エラーメッセージ
-    const [imgError, setImgError] = useState("");
-    // geminiApiKey: 復号済みのGemini APIキー（メモリ上のみ保持）
-    const [geminiApiKey, setGeminiApiKey] = useState("");
-    // geminiKeyInput: APIキー入力フォームの一時入力値
-    const [geminiKeyInput, setGeminiKeyInput] = useState("");
-    // geminiKeySaving: APIキー保存中フラグ
-    const [geminiKeySaving, setGeminiKeySaving] = useState(false);
-    // geminiKeySaveMsg: APIキー保存結果メッセージ（成功・失敗）
-    const [geminiKeySaveMsg, setGeminiKeySaveMsg] = useState("");
+    // ── JSON入力による予定一括追加機能（管理者専用）の状態 ──────────────────
+    // showJsonImport: JSONインポートモーダルの表示フラグ
+    const [showJsonImport, setShowJsonImport] = useState(false);
+    // jsonInput: テキストエリアへの入力値
+    const [jsonInput, setJsonInput] = useState("");
+    // jsonError: パースエラーメッセージ
+    const [jsonError, setJsonError] = useState("");
+    // ────────────────────────────────────────────────────────────────────────
     // ────────────────────────────────────────────────────────────────────────
 
     // 編集モーダル関連の状態
@@ -454,13 +442,6 @@ function App(){
             console.warn("events read error (Firebaseルールを確認してください):", evErr);
             setEvents({});
         }
-        // Gemini APIキーをFirebaseから読み込む（平文で保存・管理者のみ利用可能）
-        try {
-            const geminiSnap = await get(ref(db, DB_GEMINI_PATH));
-            if (geminiSnap.exists()) setGeminiApiKey(geminiSnap.val());
-        } catch(gErr) {
-            console.warn("Gemini APIキー読み込みエラー:", gErr);
-        }
         } catch (e) {
         console.error("Firebase read error:", e);
         setSchedules([]);
@@ -503,26 +484,86 @@ function App(){
         else setLoginErr("パスワードが違います");
     }
 
-    // Gemini APIキーをFirebaseに保存する（管理者専用・平文保存）
-    // Firebaseのセキュリティルールで geminiApiKey パスへの書き込みを許可する必要がある
-    async function saveGeminiApiKey(rawKey) {
-        if (!rawKey) return;
-        setGeminiKeySaving(true);
-        setGeminiKeySaveMsg("");
+    // ── JSON入力から予定を一括追加する処理（管理者専用）────────────────────
+
+    // JSONテキストをパースして予定追加フォームに展開する
+    // 対応形式: [{"day":"Friday","time":"10:00-12:00","name":"たくみ"}, ...]
+    function handleJsonImport() {
+        setJsonError("");
+        let parsed;
         try {
-            // Firebaseの geminiApiKey パスに直接書き込む
-            await set(ref(db, DB_GEMINI_PATH), rawKey);
-            // 書き込み成功後にstateを更新して「登録済み」バッジに切り替える
-            setGeminiApiKey(rawKey);
-            setGeminiKeyInput("");
-            setGeminiKeySaveMsg("ok");
+            // 入力テキストをJSONとしてパースする
+            parsed = JSON.parse(jsonInput.trim());
         } catch(e) {
-            // 書き込み失敗（Firebaseルール拒否など）はエラーメッセージで表示する
-            console.error("Gemini APIキーの保存に失敗:", e);
-            setGeminiKeySaveMsg("err:" + e.message);
+            setJsonError("JSONの形式が正しくありません：" + e.message);
+            return;
         }
-        setGeminiKeySaving(false);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+            setJsonError("配列形式で入力してください");
+            return;
+        }
+
+        // 英語曜日名 → weekDatesのインデックス（火〜月の順）に変換するマッピング
+        const dayMap = {
+            "monday": 6, "tuesday": 0, "wednesday": 1,
+            "thursday": 2, "friday": 3, "saturday": 4, "sunday": 5,
+            "月": 6, "火": 0, "水": 1, "木": 2, "金": 3, "土": 4, "日": 5
+        };
+
+        const newRows = [];
+        for (const item of parsed) {
+            // dayフィールドを小文字化してインデックスに変換する
+            const dayKey = (item.day || "").toLowerCase().trim();
+            const dayIndex = dayMap[dayKey];
+            if (dayIndex === undefined) {
+                setJsonError(`曜日「${item.day}」を認識できません。Monday〜Sunday または 月〜日 で指定してください`);
+                return;
+            }
+
+            // "10:00-12:00" 形式の時間帯をstartH・endHに分解する
+            const timeParts = (item.time || "").split("-");
+            if (timeParts.length !== 2) {
+                setJsonError(`時間帯「${item.time}」の形式が正しくありません。"10:00-12:00" の形式で指定してください`);
+                return;
+            }
+            const startH = parseInt(timeParts[0].split(":")[0], 10);
+            const startM = parseInt(timeParts[0].split(":")[1] || "0", 10);
+            const endH   = parseInt(timeParts[1].split(":")[0], 10);
+            const endM   = parseInt(timeParts[1].split(":")[1] || "0", 10);
+
+            if (isNaN(startH) || isNaN(endH)) {
+                setJsonError(`時間帯「${item.time}」を数値として読み取れませんでした`);
+                return;
+            }
+
+            // ベース行データを生成して各フィールドを上書きする
+            newRows.push({
+                ...newRow(weekDates, true),
+                name:     (item.name || "").trim(),
+                dayIndex,
+                startH,
+                startM,
+                endH,
+                endM,
+                pin: "1234",  // PINは一律1234を設定する
+            });
+        }
+
+        if (newRows.length === 0) {
+            setJsonError("有効な予定データが見つかりませんでした");
+            return;
+        }
+
+        // モーダルを閉じて予定追加フォームを開き、展開した行データをセットする
+        setShowJsonImport(false);
+        setJsonInput("");
+        setJsonError("");
+        setGlobalWarn("");
+        setBulkPin("1234");
+        setRows(newRows);
+        setShowForm(true);
     }
+    // ────────────────────────────────────────────────────────────────────────
 
     // 管理者ログアウト
     function handleLogout(){
@@ -1055,147 +1096,6 @@ function App(){
         setRows([row]);
     }
 
-    // ── 画像読み取り予定追加機能（管理者専用）──────────────────────────────
-
-    // 画像ファイルが選択されたときにプレビュー用DataURLを生成する
-    function handleImgSelect(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        setImgFile(file);
-        setImgError("");
-        // FileReaderでDataURLに変換してプレビュー表示する
-        const reader = new FileReader();
-        reader.onload = ev => setImgPreview(ev.target.result);
-        reader.readAsDataURL(file);
-    }
-
-    // 画像をClaude APIに送信して予定情報をJSONで取得する
-    async function handleImgProcess() {
-        if (!imgFile) {
-            setImgError("画像を選択してください");
-            return;
-        }
-        // Gemini APIキーが未設定の場合はエラーを表示する
-        if (!geminiApiKey) {
-            setImgError("Gemini APIキーが設定されていません。下のフォームから登録してください。");
-            return;
-        }
-        setImgProcessing(true);
-        setImgError("");
-        try {
-            // 画像をbase64に変換する（DataURLのヘッダー部分を除去）
-            const base64 = imgPreview.split(",")[1];
-            const mediaType = imgFile.type || "image/jpeg";
-
-            // Gemini APIに送るプロンプト
-            // 黒板の手書き予定表を解析して、名前・曜日・時間帯をJSONで返すよう指示する
-            const prompt = `この画像は日本語で書かれた手書きの予定表（黒板）です。
-表の構造を読み取り、記入されている予定を全て抽出してください。
-
-表の構造：
-- 列：曜日（火・水・木・金・土・日・月）
-- 行：時間帯（10-12、12-14、14-16、16-18、18-20 などの2時間スロット）
-- セル内容：その時間帯にその曜日に予定がある人の名前
-
-以下のJSON形式のみで回答してください。他のテキストは一切含めないでください：
-[
-  {"name": "名前", "day": "火", "startHour": 10, "endHour": 12},
-  ...
-]
-
-曜日は「火」「水」「木」「金」「土」「日」「月」のいずれかで返してください。
-名前が読み取れない・空のセルは含めないでください。
-セル内に複数の名前がある場合は別々のエントリとして返してください。
-名前はひらがなやカタカナ、漢字などそのまま読み取ってください。`;
-
-            // Gemini API（gemini-2.0-flash-lite）に画像とプロンプトを送信する
-            // gemini-2.0-flash-lite は無料枠で画像認識に対応した軽量モデル
-            const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=" + geminiApiKey;
-            const response = await fetch(geminiUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            // 画像パート：base64エンコードしたデータをinlineDataとして渡す
-                            { inlineData: { mimeType: mediaType, data: base64 } },
-                            // テキストパート：抽出指示プロンプト
-                            { text: prompt }
-                        ]
-                    }],
-                    // JSON以外を返させないための生成設定
-                    generationConfig: { temperature: 0 }
-                })
-            });
-
-            const data = await response.json();
-
-            // APIエラーレスポンスを検出する
-            if (!response.ok || data.error) {
-                const msg = data.error?.message || JSON.stringify(data);
-                throw new Error("Gemini API エラー (HTTP " + response.status + "): " + msg);
-            }
-
-            // Geminiのレスポンス構造からテキストを取り出す
-            const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-            // JSONブロック（```json ... ``` や ``` ... ```）を除去してパースする
-            const cleaned = rawText.replace(/```json|```/g, "").trim();
-            let parsed;
-            try {
-                parsed = JSON.parse(cleaned);
-            } catch {
-                throw new Error("AIの応答をJSONとして解析できませんでした。応答内容：" + rawText.slice(0, 200));
-            }
-
-            if (!Array.isArray(parsed) || parsed.length === 0) {
-                setImgError("予定が見つかりませんでした。画像を確認してください。");
-                setImgProcessing(false);
-                return;
-            }
-
-            // 抽出した予定データをRowEditor用の行データに変換する
-            // 曜日名からweekDatesのインデックスに変換するマッピング
-            const dayMap = { "火": 0, "水": 1, "木": 2, "金": 3, "土": 4, "日": 5, "月": 6 };
-            const newRows = parsed
-                .filter(item => item.name && item.day && dayMap[item.day] !== undefined)
-                .map(item => ({
-                    ...newRow(weekDates, true),       // ベース行データを生成
-                    name: item.name,                   // 抽出した名前を設定
-                    dayIndex: dayMap[item.day],        // 曜日をインデックスに変換
-                    startH: Number(item.startHour),   // 開始時間を設定
-                    endH:   Number(item.endHour),     // 終了時間を設定
-                    startM: 0,
-                    endM:   0,
-                    pin:    "1234",                   // パスワードは一律1234を設定
-                }));
-
-            if (newRows.length === 0) {
-                setImgError("有効な予定データが見つかりませんでした。");
-                setImgProcessing(false);
-                return;
-            }
-
-            // 画像インポートモーダルを閉じて予定追加フォームを開く
-            // 抽出した複数行データをそのままフォームにセットする
-            setShowImgImport(false);
-            setImgFile(null);
-            setImgPreview(null);
-            setImgError("");
-            setGlobalWarn("");
-            setBulkPin("1234");   // PIN一括設定にも1234をセット
-            setRows(newRows);     // 抽出した行データをフォームに展開する
-            setShowForm(true);    // 予定追加モーダルを開く
-
-        } catch (err) {
-            // エラーをキャッチしてユーザーに表示する
-            setImgError("解析中にエラーが発生しました：" + err.message);
-        }
-        setImgProcessing(false);
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-
     // 追加フォームに新しい行を追加する
     function addRow(){
         setRows(r => [...r,newRow(weekDates,isAdmin)]);
@@ -1502,8 +1402,8 @@ function App(){
                 <button className = {"btn btn-sm " + (isAdmin?"btn-amber":"btn-purple")} onClick = {openAdd}>+ 予定を追加</button>
                 {isAdmin?<>
                 <button className = "btn btn-sm btn-ghost-amber" onClick = {() => openEventModal(dateKey(weekDates[0]))}>イベント設定</button>
-                {/* 管理者専用：画像から予定を読み取るボタン（新規追加） */}
-                <button className = "btn btn-sm btn-ghost-amber" onClick = {() => { setShowImgImport(true); setImgFile(null); setImgPreview(null); setImgError(""); }}>画像から追加</button>
+                {/* 管理者専用：JSONから予定を一括追加するボタン */}
+                <button className = "btn btn-sm btn-ghost-amber" onClick = {() => { setShowJsonImport(true); setJsonInput(""); setJsonError(""); }}>JSONから追加</button>
                 <button className = "btn btn-sm btn-ghost-amber" onClick = {() => {setShowPassChange(true); setPassErr(""); setPassOk(false); setPassOld(""); etPassNew(""); setPassNew2("");}}>PW変更</button>
                 <button className = "btn btn-sm btn-ghost-amber" onClick = {handleLogout}>通常モード</button>
                 </>:<button className = "btn btn-sm btn-ghost" onClick = {() => {setShowLogin(true); setLoginErr(""); setLoginInput("");}}>管理</button>}
@@ -2034,86 +1934,45 @@ function App(){
             </div>);
         })()}
 
-        {/* ── 画像インポートモーダル（管理者専用・新規追加） ───────────────────── */}
-        {/* 「📷 画像から追加」ボタンを押すと開く。画像を選択してAPIで解析する */}
-        {showImgImport && isAdmin && (
-            <div className = "overlay" onClick = {e => { if (e.target === e.currentTarget) { setShowImgImport(false); setImgFile(null); setImgPreview(null); setImgError(""); } }}>
-            <div className = "modal" style = {{maxWidth: 480}}>
+        {/* ── JSONインポートモーダル（管理者専用） ────────────────────────────── */}
+        {/* 「JSONから追加」ボタンを押すと開く。JSON文字列を貼り付けて予定を一括展開する */}
+        {showJsonImport && isAdmin && (
+            <div className = "overlay" onClick = {e => { if (e.target === e.currentTarget) { setShowJsonImport(false); setJsonInput(""); setJsonError(""); } }}>
+            <div className = "modal" style = {{maxWidth: 500}}>
                 <div className = "drag-bar"/>
-                {/* モーダルタイトル */}
-                <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 4}}>画像から予定を読み取る</h2>
-                <p style = {{fontSize: 11, color: "#9ca3af", marginBottom: 14}}>黒板などの手書き予定表の画像をアップロードすると、AIが名前・曜日・時間帯を自動で読み取ります。確認後に予定追加フォームに展開されます。</p>
+                <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 4}}>JSONから予定を追加</h2>
+                <p style = {{fontSize: 11, color: "#9ca3af", marginBottom: 12}}>以下の形式のJSONを貼り付けて「読み込む」を押してください。</p>
 
-                {/* 画像選択エリア：ファイル入力とプレビューを表示する */}
-                <div style = {{marginBottom: 14}}>
-                    <label className = "lbl">予定表の画像</label>
-                    {/* input[type=file]でファイル選択ダイアログを開く */}
-                    <input type = "file" accept = "image/*" onChange = {handleImgSelect}
-                        style = {{display: "block", width: "100%", padding: "9px 11px", background: "rgba(245,158,11,0.04)", border: "1.5px solid rgba(245,158,11,0.20)", borderRadius: 10, fontSize: 13, fontFamily: "inherit", cursor: "pointer", color: "#2d2d3a"}}/>
+                {/* フォーマット例を表示する */}
+                <pre style = {{fontSize: 11, background: "rgba(108,99,255,0.04)", border: "1.5px solid rgba(108,99,255,0.10)", borderRadius: 10, padding: "10px 12px", marginBottom: 12, overflowX: "auto", color: "#6c63ff", fontFamily: "monospace", lineHeight: 1.6}}>{`[
+  {
+    "day": "Friday",
+    "time": "10:00-12:00",
+    "name": "たくみ"
+  },
+  {
+    "day": "Sunday",
+    "time": "10:00-12:00",
+    "name": "たかはし"
+  }
+]`}</pre>
+
+                {/* JSON入力テキストエリア */}
+                <div style = {{marginBottom: 12}}>
+                    <label className = "lbl">JSON</label>
+                    <textarea className = "inp-a" value = {jsonInput} onChange = {e => { setJsonInput(e.target.value); setJsonError(""); }}
+                        rows = {8} placeholder = {'[\n  {"day":"Friday","time":"10:00-12:00","name":"たくみ"}\n]'}
+                        style = {{fontFamily: "monospace", fontSize: 12, resize: "vertical"}}/>
                 </div>
 
-                {/* 選択された画像のプレビューを表示する */}
-                {imgPreview && (
-                    <div style = {{marginBottom: 14, borderRadius: 12, overflow: "hidden", border: "1.5px solid rgba(245,158,11,0.25)"}}>
-                        <img src = {imgPreview} alt = "プレビュー" style = {{width: "100%", maxHeight: 260, objectFit: "contain", display: "block", background: "#f8f9ff"}}/>
-                    </div>
-                )}
+                {/* エラーメッセージ */}
+                {jsonError && <div className = "wbox-a" style = {{marginBottom: 12}}>{jsonError}</div>}
 
-                {/* エラーメッセージ表示 */}
-                {imgError && <div className = "wbox-a" style = {{marginBottom: 12}}>{imgError}</div>}
-
-                {/* Gemini APIキー設定欄：未設定または変更したい場合に入力する */}
-                <div style = {{marginBottom: 14, padding: "11px 13px", borderRadius: 11, background: "rgba(245,158,11,0.04)", border: "1.5px dashed rgba(245,158,11,0.28)"}}>
-                    <div style = {{fontSize: 11, fontWeight: 800, color: "#b45309", marginBottom: 6, letterSpacing: "0.5px", textTransform: "uppercase"}}>
-                        Gemini APIキー
-                        {/* 登録済みかどうかをバッジで表示する */}
-                        {geminiApiKey
-                            ? <span style = {{marginLeft: 8, background: "rgba(16,185,129,0.12)", color: "#059669", borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700}}>登録済み</span>
-                            : <span style = {{marginLeft: 8, background: "rgba(239,68,68,0.10)", color: "#dc2626", borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700}}>未登録</span>
-                        }
-                    </div>
-                    <div style = {{display: "flex", gap: 7}}>
-                        {/* APIキー入力フィールド（passwordタイプで伏字表示） */}
-                        <input className = "inp-a" type = "password" value = {geminiKeyInput}
-                            onChange = {e => setGeminiKeyInput(e.target.value)}
-                            placeholder = {geminiApiKey ? "変更する場合のみ入力" : "AIzaSy..."}
-                            style = {{flex: 1, fontFamily: "monospace", fontSize: 12}}/>
-                        {/* 保存ボタン：入力がある場合のみ有効 */}
-                        <button className = "btn btn-sm btn-amber" onClick = {() => saveGeminiApiKey(geminiKeyInput.trim())}
-                            disabled = {!geminiKeyInput.trim() || geminiKeySaving}>
-                            {geminiKeySaving ? "保存中…" : "保存"}
-                        </button>
-                    </div>
-                    <div style = {{fontSize: 11, color: "#92400e", marginTop: 5}}>
-                        aistudio.google.com で無料発行できます。
-                    </div>
-                    {/* 保存結果メッセージ */}
-                    {geminiKeySaveMsg === "ok" && (
-                        <div style = {{marginTop: 6, fontSize: 12, fontWeight: 700, color: "#059669"}}>保存しました</div>
-                    )}
-                    {geminiKeySaveMsg.startsWith("err:") && (
-                        <div style = {{marginTop: 6, fontSize: 11, fontWeight: 700, color: "#dc2626"}}>
-                            保存失敗：{geminiKeySaveMsg.slice(4)}
-                            <div style = {{marginTop: 3, fontWeight: 500}}>Firebaseのセキュリティルールで「geminiApiKey」パスへの書き込みを許可してください。</div>
-                        </div>
-                    )}
-                </div>
-
-                {/* 処理中インジケーター */}
-                {imgProcessing && (
-                    <div style = {{marginBottom: 12, padding: "10px 13px", borderRadius: 10, background: "rgba(245,158,11,0.06)", border: "1.5px solid rgba(245,158,11,0.18)", fontSize: 13, fontWeight: 600, color: "#b45309"}}>
-                        AIが画像を解析中です…しばらくお待ちください
-                    </div>
-                )}
-
-                {/* ボタン行：キャンセルと処理実行 */}
-                <div style = {{display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6}}>
-                    {/* キャンセル：モーダルを閉じて状態をリセットする */}
-                    <button className = "btn btn-ghost" onClick = {() => { setShowImgImport(false); setImgFile(null); setImgPreview(null); setImgError(""); }}>キャンセル</button>
-                    {/* 処理ボタン：Claudeに画像を送信して予定を抽出する */}
-                    <button className = "btn btn-amber" onClick = {handleImgProcess} disabled = {imgProcessing || !imgFile}>
-                        {imgProcessing ? "解析中…" : "予定を読み取る"}
-                    </button>
+                {/* ボタン行 */}
+                <div style = {{display: "flex", gap: 8, justifyContent: "flex-end"}}>
+                    <button className = "btn btn-ghost" onClick = {() => { setShowJsonImport(false); setJsonInput(""); setJsonError(""); }}>キャンセル</button>
+                    {/* 読み込みボタン：JSONをパースして予定追加フォームに展開する */}
+                    <button className = "btn btn-amber" onClick = {handleJsonImport} disabled = {!jsonInput.trim()}>読み込む</button>
                 </div>
             </div>
             </div>
