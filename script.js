@@ -1943,25 +1943,11 @@ function App(){
                 <h2 style = {{fontSize: 16, fontWeight: 800, color: "#2d2d3a", marginBottom: 4}}>JSONから予定を追加</h2>
                 <p style = {{fontSize: 11, color: "#9ca3af", marginBottom: 12}}>以下の形式のJSONを貼り付けて「読み込む」を押してください。</p>
 
-                {/* フォーマット例を表示する */}
-                <pre style = {{fontSize: 11, background: "rgba(108,99,255,0.04)", border: "1.5px solid rgba(108,99,255,0.10)", borderRadius: 10, padding: "10px 12px", marginBottom: 12, overflowX: "auto", color: "#6c63ff", fontFamily: "monospace", lineHeight: 1.6}}>{`[
-  {
-    "day": "Friday",
-    "time": "10:00-12:00",
-    "name": "たくみ"
-  },
-  {
-    "day": "Sunday",
-    "time": "10:00-12:00",
-    "name": "たかはし"
-  }
-]`}</pre>
-
                 {/* JSON入力テキストエリア */}
                 <div style = {{marginBottom: 12}}>
                     <label className = "lbl">JSON</label>
                     <textarea className = "inp-a" value = {jsonInput} onChange = {e => { setJsonInput(e.target.value); setJsonError(""); }}
-                        rows = {8} placeholder = {'[\n  {"day":"Friday","time":"10:00-12:00","name":"たくみ"}\n]'}
+                        rows = {8} placeholder = {'[\n  {"day":"Friday","time":"10:00-12:00","name":"名前"}\n]'}
                         style = {{fontFamily: "monospace", fontSize: 12, resize: "vertical"}}/>
                 </div>
 
